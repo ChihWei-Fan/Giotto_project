@@ -1,0 +1,485 @@
+---
+title: "sample_095B"
+output: html_document
+date: "2023-06-15"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## 
+
+
+```{r}
+
+#restart the R session 
+#run ".rs.restartR()" in the console
+
+# Ensure Giotto Suite is installed.
+if(!"Giotto" %in% installed.packages()) {
+  devtools::install_github("drieslab/Giotto@suite")
+}
+
+# Ensure GiottoData, a small, helper module for tutorials, is installed.
+if(!"GiottoData" %in% installed.packages()) {
+  devtools::install_github("drieslab/GiottoData")
+}
+# Ensure the Python environment for Giotto has been installed.
+library(Giotto)
+genv_exists = checkGiottoEnvironment(mini_install_path = "/projectnb/rd-spat/HOME/ivycwf/.conda/")
+if(!genv_exists){
+  # The following command need only be run once to install the Giotto environment.
+  installGiottoEnvironment(mini_install_path= "/projectnb/rd-spat/HOME/ivycwf/.conda/")
+}
+```
+```{r}
+library(Giotto)
+library(GiottoData)
+# 1. set working directory
+results_folder = "/projectnb/rd-spat/HOME/ivycwf/project_1/sample_095B"
+my_python_path = "/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env/bin/python"
+instrs = createGiottoInstructions(save_dir = results_folder,
+                                  save_plot = TRUE,
+                                  show_plot = FALSE,
+                                  python_path = my_python_path)
+```
+
+
+```{r Part1 : Create Giotto Object}
+data_path = '/projectnb/rd-spat/HOME/ivycwf/GSE210616/095B/'
+## obese upper
+visium_sample_95B = createGiottoVisiumObject(
+    h5_visium_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/095B/GSM6433596_095B_filtered_feature_bc_matrix.h5",
+    #expr_data = 'filtered', # Filtered data will only have in tissue
+    #the image name should change to tissue_hires_image.png so it could be recongnized and functioning correctly
+    h5_image_png_path = '/projectnb/rd-spat/HOME/ivycwf/GSE210616/095B/tissue_hires_image.png',
+    h5_tissue_positions_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/095B/GSM6433596_095B_tissue_positions_list.csv",
+    h5_json_scalefactors_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/095B/GSM6433596_095B_scalefactors_json.json",
+    #gene_column_index = 2,
+    instructions = instrs,
+    do_manual_adj = F
+)
+```
+```{r}
+ visium_sample_95B <-readRDS("/projectnb/rd-spat/HOME/ivycwf/project_1/sample_095B/visium_sample_95B.rds")
+
+```
+
+
+```{r}
+## show associated images with giotto object
+showGiottoImageNames(visium_sample_95B) # "image" is the default name
+
+## check metadata
+pDataDT(visium_sample_95B)
+
+## show plot
+spatPlot2D(gobject = visium_sample_95B, cell_color = 'in_tissue', point_size = 2,
+           show_image = T, image_name = 'image')
+```
+
+#Part 2: Process Giotto Visium Object
+```{r}
+## subset on spots that were covered by tissue
+metadata = pDataDT(visium_sample_95B)
+in_tissue_barcodes = metadata[in_tissue == 1]$cell_ID
+visium_sample_95B = subsetGiotto(visium_sample_95B, cell_ids = in_tissue_barcodes)
+
+## filter
+visium_sample_95B <- filterGiotto(gobject = visium_sample_95B,
+                              expression_threshold = 1,
+                              feat_det_in_min_cells = 50,
+                              min_det_feats_per_cell = 1000,
+                              expression_values = c('raw'),
+                              verbose = T)
+
+## normalize and scale data
+visium_sample_95B <- normalizeGiotto(gobject = visium_sample_95B, scalefactor = 6000, verbose = T)
+
+## add gene & cell statistics
+visium_sample_95B <- addStatistics(gobject = visium_sample_95B)
+
+## visualize
+spatPlot2D(gobject = visium_sample_95B, show_image = T, point_alpha = 0.7,
+           cell_color = 'nr_feats', color_as_factor = F)
+# nr_feats is in "visium_sample_95B@cell_metadata$cell$rna"
+```
+
+# Part 3: Dimention Reduction
+```{r}
+## highly variable features / genes (HVF)
+visium_sample_95B <- calculateHVF(gobject = visium_sample_95B, save_plot = F, show_plot = T)
+```
+
+
+```{r}
+## run PCA on expression values (default)
+gene_metadata = fDataDT(visium_sample_95B) #features data
+featgenes = gene_metadata[hvf == 'yes' & perc_cells > 3 & mean_expr_det > 0.4]$feat_ID
+
+## run PCA on expression values (default)
+visium_sample_95B <- runPCA(gobject = visium_sample_95B,
+                       feats_to_use = featgenes)
+
+screePlot(visium_sample_95B, ncp = 30)
+```
+```{r}
+dimPlot2D(gobject = visium_sample_95B, dim_reduction_to_use = "pca")
+```
+
+
+```{r}
+## run UMAP and tSNE on PCA space (default)
+visium_sample_95B <- runUMAP(visium_sample_95B, dimensions_to_use = 1:10)
+#plotUMAP(gobject = visium_sample_95B)
+```
+
+
+```{r}
+visium_sample_95B <- runtSNE(visium_sample_95B, dimensions_to_use = 1:10)
+#plotTSNE(gobject = visium_sample_95B)
+```
+# Part 4: Cluster
+```{r}
+## sNN network (default)
+visium_sample_95B <- createNearestNetwork(gobject = visium_sample_95B, dimensions_to_use = 1:10, k = 15)
+
+## Leiden clustering
+visium_sample_95B <- doLeidenCluster(gobject = visium_sample_95B, resolution = 0.4, n_iterations = 1000)
+
+plotUMAP(gobject = visium_sample_95B,
+         cell_color = 'leiden_clus', show_NN_network = T, point_size = 2.5)
+```
+
+
+```{r}
+# spatial and dimension plots
+spatDimPlot(gobject = visium_sample_95B, cell_color = 'leiden_clus',
+            dim_point_size = 2, spat_point_size = 2.5)
+```
+
+
+```{r}
+spatDimPlot(gobject = visium_sample_95B, cell_color = 'nr_feats', color_as_factor = F,
+            dim_point_size = 2, spat_point_size = 2.5)
+```
+
+
+```{r}
+# dimension plots grouped by cluster
+spatPlot2D(visium_sample_95B, cell_color = 'leiden_clus',
+           coord_fix_ratio = 1)
+```
+
+# Spatial Gene expression on features for specific genes
+```{r}
+spatFeatPlot2D(visium_sample_95B, expression_values = "scaled",
+               feats = c("APOE","FABP4","ADIPOQ","PPARG"),
+               cow_n_col = 2, point_size = 1.5)
+```
+
+
+# Spatial Gene expression after dimension reduction for specific genes
+```{r}
+# umap plots
+dimFeatPlot2D(visium_sample_95B, expression_values = 'scaled',
+              feats = c("APOE","FABP4","ADIPOQ","PPARG"),
+              cow_n_col = 2, point_size = 0.75,
+              save_param = list(base_width = 10, base_height = 5))
+```
+
+#Part 5 : Run the interactive selection tool
+```{r}
+# could use test[,selections:=NULL] to remove the "selections" column in the data.table
+
+## Plot spatial cells/spots # No tissue image on the background
+s95B_spatPlot <- spatPlot2D(gobject = visium_sample_95B,
+                          cell_color = 'leiden_clus',
+                          point_size = 1.5,
+                          point_alpha = 0.5,
+                          show_image = FALSE)
+
+```
+
+
+```{r}
+# could use test[,selections:=NULL] to remove the "selections" column in the data.table
+
+## Plot spatial cells/spots with tissue on the background
+s95B_spatPlot <- spatPlot2D(gobject = visium_sample_95B,
+                          point_size = 1.5,
+                          point_alpha = 0.1,
+                          show_image = TRUE)
+```
+
+
+
+# Save the coordinates
+```{r}
+## The polygon coordinates will be saved as a data.table object
+s95B_spatPlot_coordinates <- plotInteractivePolygons(s95B_spatPlot)
+s95B_spatPlot_coordinates
+```
+```{r}
+# add the polygon coordinates to the Giotto object:
+## We must transform the data.table or data.frame with coordinates into a Giotto polygon object
+s95B_polygons <- createGiottoPolygonsFromDfr(s95B_spatPlot_coordinates, name = 'selections_multi_regions')
+s95B_polygons
+```
+
+
+```{r}
+## Then, add the polygons to the Giotto object
+visium_sample_95B <- addGiottoPolygons(gobject = visium_sample_95B,
+                                  gpolygons = list(s95B_polygons))
+```
+
+
+```{r}
+## Using the default parameters
+visium_sample_95B <- addPolygonCells(visium_sample_95B,
+                                polygon_name = 'selections_multi_regions')
+
+## Let's see how it looks like now the cell_metadata
+pDataDT(visium_sample_95B)
+
+```
+
+# Get the cells located within each polygon
+```{r}
+## Provide the name of the polygon to extract cells from
+adipo_cells <-getCellsFromPolygon(visium_sample_95B,
+                    polygon_name = 'selections_multi_regions',
+                    polygons = 'multi_region_a')
+adipo_cells # This is a spatial vector
+              # polygon1_cells$cell_ID can get all the cells in polygon 1 
+
+```
+
+```{r}
+## Provide the name of the polygon to extract cells from
+polygon2_cells <-getCellsFromPolygon(visium_sample_95B,
+                    polygon_name = 'selections',
+                    polygons = 'polygon 2')
+polygon2_cells # This is a spatial vector
+
+```
+```{r}
+## Provide the name of the polygon to extract cells from
+polygon3_cells <-getCellsFromPolygon(visium_sample_95B,
+                    polygon_name = 'selections',
+                    polygons = 'polygon 3')
+polygon3_cells # This is a spatial vector
+```
+# Compare gene expression (you need to specify the genes you are interested in and if the genes are not in the vector you provided, it will give you errors)
+```{r}
+## provide a list of genes you want to compare
+comparePolygonExpression(visium_sample_95B,
+                         polygon_name = "selections_far1",
+                         selected_feats = c('APOE','PPARG', 'CEBPA', 'FABP4','ADIPOQ','FASN','LPL'))
+
+#"PPARG', 'CEBPA', 'FABP4', 'ADIPOQ', 'LEP', 'RETN', 'FASN', 'LPL', 'CFD', 'DLK1', 'CD36', 'GPD1', 'SREBF1', 'TCF21', 'ZFP423', 'CIDEC', 'CIDEA', 'PLIN1', 'FATP1', 'KLF15'"
+
+
+```
+
+# Part 6: marker gene detection for clusters
+```{r}
+## ------------------ ##
+# Scran Markers
+scran_markers_subclusters = findMarkers_one_vs_all(gobject = visium_sample_95B,
+                                                   method = 'scran',
+                                                   expression_values = 'normalized',
+                                                   cluster_column = 'leiden_clus')
+topgenes_scran = scran_markers_subclusters[, head(.SD, 2), by = 'cluster']$feats
+
+# violinplot
+violinPlot(visium_sample_95B, feats = unique(topgenes_scran), cluster_column = 'leiden_clus',
+           strip_text = 8, strip_position = 'right',
+           save_param = list(base_width = 5))
+```
+```{r}
+# NO need to run this cell
+# cluster heatmap
+plotMetaDataHeatmap(visium_sample_95B, selected_feats = topgenes_scran,
+                    metadata_cols = c('leiden_clus'))
+```
+
+
+```{r}
+### NO need to run the cell
+# umap plots
+dimFeatPlot2D(visium_sample_95B, expression_values = 'scaled',
+              feats = scran_markers_subclusters[, head(.SD, 1), by = 'cluster']$feats,
+              cow_n_col = 3, point_size = 1,
+              save_param = list(base_width = 8, base_height = 8))
+```
+
+
+
+```{r}
+## Or calculate the top genes expressed within each region, then provide the result to compare polygons.
+scran_results <- findMarkers_one_vs_all(visium_sample_95B,
+                                        spat_unit = 'cell',
+                                        feat_type = 'rna',
+                                        method = 'scran',
+                                        expression_values = 'normalized',
+                                        cluster_column = 'selections_multi_regions',
+                                        min_feats = 10)
+
+top_genes <- scran_results[, head(.SD, 100), by = 'cluster']$feats
+
+```
+```{r}
+topgenes_heatmap <- comparePolygonExpression(visium_sample_95B, polygon_name = "selections_multi_regions",
+                         selected_feats = top_genes, method = "scran", expression_values = "normalized")
+# This function do not save the plot
+topgenes_heatmap
+pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/sample_095B/topgenes_heatmap_multi_regions.pdf",width = 8, height = 15)
+plot(topgenes_heatmap)
+dev.off()
+```
+
+```{r}
+library(SeqGSEA)
+#Convert symbol to ensembl ID
+ adipo1_ensem <- SeqGSEA::convertSymbol2Ensembl(c("SLPI", "LYZ", "MT-CO2", "MRPL41", "LRRC26", "SLC9A3R1", "SMIM22", "TMBIM6", "MELTF", "GABRP", "ADRA2B", "MT-CO3", "COX6A1", "OAT", "AIF1L", "FBP1", "H2AFJ", "METRN", "CKS2", "MT-ND4", "RPL41", "DMAC1", "FRZB", "SOX10", "TMEM238", "TUBB4B", "CTSF", "EPCAM", "ATP1B1", "MGLL"))%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+ 
+```
+
+```{r}
+#Convert symbol to ensembl ID
+ top_far_ensem <- SeqGSEA::convertSymbol2Ensembl(top30_far_genes)%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Convert the symbol ID to ensembl ID
+
+```
+
+# ###############################################################################
+# Plot with group by: (optional)
+```{r}
+spatPlot2D(visium_sample_95B, cell_color = 'leiden_clus',
+           group_by = 'leiden_clus', coord_fix_ratio = 1,
+           cow_n_col = 6, show_legend = F,
+           save_param = list(base_width = 14, base_height = 14))
+#Highlight one or more groups: (optional)
+spatPlot2D(visium_sample_95B, cell_color = 'leiden_clus',
+           select_cell_groups = '8', coord_fix_ratio = 1, show_other_cells = TRUE,
+           cell_color_code = c('8' = 'red'), other_cell_color = "grey", other_point_size = 1.5,
+           save_param = list(base_width = 7, base_height = 7))
+```
+
+# Part 5: subset data (Do not need right now )
+```{r}
+# create and show subset
+DG_subset = subsetGiottoLocs(visium_sample_95B,
+                             x_max = 6500, x_min = 3000,
+                             y_max = -2500, y_min = -5500,
+                             return_gobject = TRUE)
+# (x and y means the coordinate on the plots)
+
+spatDimPlot(gobject = DG_subset,
+            cell_color = 'leiden_clus', spat_point_size = 5)
+```
+
+
+
+
+
+
+
+# Part 7: cell-type annotation
+```{r}
+
+```
+
+
+
+
+
+
+# Part 6: marker gene detection for clusters
+```{r}
+## ------------------ ##
+## Gini markers
+gini_markers_subclusters = findMarkers_one_vs_all(gobject = visium_sample_95B,
+                                                  method = 'gini',
+                                                  expression_values = 'normalized',
+                                                  cluster_column = 'leiden_clus',
+                                                  min_feats = 20,
+                                                  min_expr_gini_score = 0.5,
+                                                  min_det_gini_score = 0.5)
+topgenes_gini = gini_markers_subclusters[, head(.SD, 2), by = 'cluster']$feats
+
+# violinplot
+violinPlot(visium_sample_95B, feats = unique(topgenes_gini), cluster_column = 'leiden_clus',
+           strip_text = 6, strip_position = 'right', #strip_text = 8 is the text size
+           save_param = list(base_width = 5, base_height = 10))
+```
+
+
+```{r}
+# cluster heatmap
+plotMetaDataHeatmap(visium_sample_95B, selected_feats = unique(topgenes_gini),
+                    metadata_cols = c('leiden_clus'),
+                    x_text_size = 10, y_text_size = 10)
+```
+
+
+```{r}
+# umap plots
+dimFeatPlot2D(visium_sample_95B, expression_values = 'scaled',
+              feats = gini_markers_subclusters[, head(.SD, 1), by = 'cluster']$feats,
+              cow_n_col = 4, point_size = 0.75,
+              save_param = list(base_width = 8, base_height = 8))
+```
+
+
+
+
+
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+

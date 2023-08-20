@@ -1,0 +1,184 @@
+---
+title: "sample_395D"
+output: html_document
+date: "2023-06-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Ensure Giotto Suite is installed.
+if(!"Giotto" %in% installed.packages()) {
+  devtools::install_github("drieslab/Giotto@suite")
+}
+
+# Ensure GiottoData, a small, helper module for tutorials, is installed.
+if(!"GiottoData" %in% installed.packages()) {
+  devtools::install_github("drieslab/GiottoData")
+}
+# Ensure the Python environment for Giotto has been installed.
+library(Giotto)
+genv_exists = checkGiottoEnvironment(mini_install_path = "/projectnb/rd-spat/HOME/ivycwf/.conda/")
+if(!genv_exists){
+  # The following command need only be run once to install the Giotto environment.
+  installGiottoEnvironment(mini_install_path= "/projectnb/rd-spat/HOME/ivycwf/.conda/")
+}
+
+```
+
+
+```{r}
+library(Giotto)
+library(GiottoData)
+# 1. set working directory
+results_folder = '/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B'
+my_python_path = "/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env/bin/python"
+instrs = createGiottoInstructions(save_dir = results_folder,
+                                  save_plot = TRUE,
+                                  show_plot = FALSE,
+                                  python_path = my_python_path)
+
+```
+
+```{r Part1 : Create Giotto Object}
+## obese upper
+visium_sample_119B = createGiottoVisiumObject(
+    h5_visium_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_filtered_feature_bc_matrix.h5",
+    #the image name should change to tissue_hires_image.png so it could be recongnized and functioning correctly
+    h5_image_png_path = '/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/tissue_hires_image.png',
+    h5_tissue_positions_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_tissue_positions_list.csv",
+    h5_json_scalefactors_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_scalefactors_json.json",
+    instructions = instrs,
+    do_manual_adj = F
+)
+```
+
+```{r}
+## show associated images with giotto object
+showGiottoImageNames(visium_sample_119B) # "image" is the default name
+
+## check metadata
+pDataDT(visium_sample_119B)
+
+## show plot
+spatPlot2D(gobject = visium_sample_119B, cell_color = 'in_tissue', point_size = 2,
+           show_image = T, image_name = 'image')
+```
+#Part 2: Process Giotto Visium Object
+```{r}
+## subset on spots that were covered by tissue
+metadata = pDataDT(visium_sample_119B)
+in_tissue_barcodes = metadata[in_tissue == 1]$cell_ID
+visium_sample_119B = subsetGiotto(visium_sample_119B, cell_ids = in_tissue_barcodes)
+
+## filter
+visium_sample_119B <- filterGiotto(gobject = visium_sample_119B,
+                              expression_threshold = 1,
+                              feat_det_in_min_cells = 50,
+                              min_det_feats_per_cell = 1000,
+                              expression_values = c('raw'),
+                              verbose = T)
+
+## normalize
+visium_sample_119B <- normalizeGiotto(gobject = visium_sample_119B, scalefactor = 6000, verbose = T)
+
+## add gene & cell statistics
+visium_sample_119B <- addStatistics(gobject = visium_sample_119B)
+
+## visualize
+spatPlot2D(gobject = visium_sample_119B, show_image = T, point_alpha = 0.7,
+           cell_color = 'nr_feats', color_as_factor = F)
+# nr_feats is in "visium_sample_95B@cell_metadata$cell$rna"
+```
+
+
+# Part 3: Dimention Reduction
+```{r}
+## highly variable features / genes (HVF)
+visium_sample_119B <- calculateHVF(gobject = visium_sample_119B, save_plot = TRUE, show_plot = T)
+```
+
+```{r}
+## run PCA on expression values (default)
+gene_metadata = fDataDT(visium_sample_119B)
+featgenes = gene_metadata[hvf == 'yes' & perc_cells > 3 & mean_expr_det > 0.4]$feat_ID
+
+## run PCA on expression values (default)
+visium_sample_119B <- runPCA(gobject = visium_sample_119B,
+                       feats_to_use = featgenes)
+
+screePlot(visium_sample_119B, ncp = 30)
+```
+```{r}
+dimPlot2D(gobject = visium_sample_119B, dim_reduction_to_use = "pca")
+```
+
+
+```{r}
+## run UMAP and tSNE on PCA space (default)
+visium_sample_119B <- runUMAP(visium_sample_119B, dimensions_to_use = 1:10)
+plotUMAP(gobject = visium_sample_119B)
+```
+
+
+```{r}
+visium_sample_119B <- runtSNE(visium_sample_119B, dimensions_to_use = 1:10)
+plotTSNE(gobject = visium_sample_119B)
+```
+
+# Part 4: Cluster
+```{r}
+## sNN network (default)
+visium_sample_119B <- createNearestNetwork(gobject = visium_sample_119B, dimensions_to_use = 1:10, k = 15)
+
+## Leiden clustering
+visium_sample_119B <- doLeidenCluster(gobject = visium_sample_119B, resolution = 0.4, n_iterations = 1000)
+
+plotUMAP(gobject = visium_sample_119B,
+         cell_color = 'leiden_clus', show_NN_network = T, point_size = 2.5)
+```
+
+```{r}
+# spatial and dimension plots
+spatDimPlot(gobject = visium_sample_119B, cell_color = 'leiden_clus',
+            dim_point_size = 2, spat_point_size = 2.5)
+```
+
+
+```{r}
+spatDimPlot(gobject = visium_sample_119B, cell_color = 'nr_feats', color_as_factor = F,
+            dim_point_size = 2, spat_point_size = 2.5)
+```
+
+
+```{r}
+# dimension plots grouped by cluster
+spatPlot2D(visium_sample_119B, cell_color = 'leiden_clus',
+           coord_fix_ratio = 1)
+```
+# Spatial Gene expression on features for specific genes
+```{r}
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("APOE","FABP4"),
+               cow_n_col = 2, point_size = 1.5)
+```
+# Spatial Gene expression after dimension reduction for specific genes
+```{r}
+# umap plots
+dimFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
+              feats = c("APOE","FABP4"),
+              cow_n_col = 1, point_size = 0.75,
+              save_param = list(base_width = 5, base_height = 10))
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+

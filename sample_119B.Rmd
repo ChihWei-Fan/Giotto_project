@@ -1,0 +1,816 @@
+---
+title: "sample_119B"
+output:
+  pdf_document: default
+  html_document: default
+date: "2023-06-16"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Ensure Giotto Suite is installed.
+if(!"Giotto" %in% installed.packages()) {
+  devtools::install_github("drieslab/Giotto@suite")
+}
+
+# Ensure GiottoData, a small, helper module for tutorials, is installed.
+if(!"GiottoData" %in% installed.packages()) {
+  devtools::install_github("drieslab/GiottoData")
+}
+# Ensure the Python environment for Giotto has been installed.
+library(Giotto)
+genv_exists = checkGiottoEnvironment(mini_install_path = "/projectnb/rd-spat/HOME/ivycwf/.conda/")
+if(!genv_exists){
+  # The following command need only be run once to install the Giotto environment.
+  installGiottoEnvironment(mini_install_path= "/projectnb/rd-spat/HOME/ivycwf/.conda/")
+}
+
+```
+
+
+```{r}
+library(Giotto)
+library(GiottoData)
+# 1. set working directory
+results_folder = "/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B"
+my_python_path = "/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env/bin/python"
+instrs = createGiottoInstructions(save_dir = results_folder,
+                                  save_plot = TRUE,
+                                  show_plot = FALSE,
+                                  python_path = my_python_path)
+
+```
+
+```{r Part1 : Create Giotto Object}
+## obese upper
+visium_sample_119B = createGiottoVisiumObject(
+    h5_visium_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_filtered_feature_bc_matrix.h5",
+    #the image name should change to tissue_hires_image.png so it could be recongnized and functioning correctly
+    h5_image_png_path = '/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/tissue_hires_image.png',
+    h5_tissue_positions_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_tissue_positions_list.csv",
+    h5_json_scalefactors_path = "/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_scalefactors_json.json",
+    instructions = instrs,
+    do_manual_adj = F
+)
+```
+
+```{r}
+## show associated images with giotto object
+showGiottoImageNames(visium_sample_119B) # "image" is the default name
+
+## check metadata
+pDataDT(visium_sample_119B)
+
+## show plot
+spatPlot2D(gobject = visium_sample_119B, cell_color = 'in_tissue', point_size = 2,
+           show_image = T, image_name = 'image')
+```
+#Part 2: Process Giotto Visium Object
+```{r}
+## subset on spots that were covered by tissue
+metadata = pDataDT(visium_sample_119B)
+in_tissue_barcodes = metadata[in_tissue == 1]$cell_ID
+visium_sample_119B = subsetGiotto(visium_sample_119B, cell_ids = in_tissue_barcodes)
+
+## filter
+visium_sample_119B <- filterGiotto(gobject = visium_sample_119B,
+                              expression_threshold = 1, #3 #2
+                              feat_det_in_min_cells = 50,
+                              min_det_feats_per_cell = 1000,#1100
+                              expression_values = c('raw'),
+                              verbose = T)
+
+## normalize
+visium_sample_119B <- normalizeGiotto(gobject = visium_sample_119B, scalefactor = 6000, verbose = T)
+
+## add gene & cell statistics
+visium_sample_119B <- addStatistics(gobject = visium_sample_119B)
+
+## visualize
+spatPlot2D(gobject = visium_sample_119B, show_image = T, point_alpha = 0.7,
+           cell_color = 'nr_feats', color_as_factor = F, axis_text = 12, axis_title = 12)
+# nr_feats is in "visium_sample_95B@cell_metadata$cell$rna"
+
+filt_3_1100_spots <- pDataDT(visium_sample_119B)
+save(visium_sample_119B, filt_3_1100_spots, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/increase_res/patches/visium_119B_spots.RData")
+```
+
+
+# Part 3: Dimention Reduction
+```{r}
+## highly variable features / genes (HVF)
+visium_sample_119B <- calculateHVF(gobject = visium_sample_119B, save_plot = TRUE, show_plot = T)
+```
+
+```{r}
+## run PCA on expression values (default)
+gene_metadata = fDataDT(visium_sample_119B)
+featgenes = gene_metadata[hvf == 'yes' & perc_cells > 3 & mean_expr_det > 0.4]$feat_ID
+
+## run PCA on expression values (default)
+visium_sample_119B <- runPCA(gobject = visium_sample_119B,
+                       feats_to_use = featgenes)
+
+screePlot(visium_sample_119B, ncp = 30)
+
+dimPlot2D(gobject = visium_sample_119B, dim_reduction_to_use = "pca",point_size = 3, axis_text = 12, axis_title = 12)
+```
+
+
+```{r}
+## run UMAP and tSNE on PCA space (default)
+visium_sample_119B <- runUMAP(visium_sample_119B, dimensions_to_use = 1:10)
+plotUMAP(gobject = visium_sample_119B, point_size = 3, axis_text = 12, axis_title = 12)
+```
+
+
+```{r}
+visium_sample_119B <- runtSNE(visium_sample_119B, dimensions_to_use = 1:10)
+plotTSNE(gobject = visium_sample_119B)
+```
+
+# Part 4: Cluster
+```{r}
+## sNN network (default)
+visium_sample_119B <- createNearestNetwork(gobject = visium_sample_119B, dimensions_to_use = 1:10, k = 15)
+
+## Leiden clustering
+visium_sample_119B <- doLeidenCluster(gobject = visium_sample_119B, resolution = 0.5, n_iterations = 1000)
+
+plotUMAP(gobject = visium_sample_119B,
+         cell_color = 'leiden_clus', show_NN_network = T, point_size = 2.5 , axis_text = 12, axis_title = 12)
+```
+
+```{r}
+# spatial and dimension plots
+spatDimPlot(gobject = visium_sample_119B, cell_color = 'leiden_clus',
+            dim_point_size = 2, spat_point_size = 2.5)
+```
+
+
+```{r}
+spatDimPlot(gobject = visium_sample_119B, cell_color = 'nr_feats', color_as_factor = F,
+            dim_point_size = 2, spat_point_size = 2.5)
+```
+
+
+```{r}
+# dimension plots grouped by cluster
+spatPlot2D(visium_sample_119B, cell_color = 'leiden_clus', show_image = T, save_plot = F,
+           coord_fix_ratio = 1, point_size = 2, axis_text = 12, axis_title = 12)
+```
+# Spatial Gene expression on features for specific genes
+```{r}
+#Share 
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("APOE","TMEM120B","HOXC9","EPSTI1","MTUS1"),
+               cow_n_col = 2, point_size = 1.5)
+```
+```{r}
+#WAT
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("FABP4","Fbxo31","LPL","MPZL2", "NR1H3","RB1","RBL1"),
+               cow_n_col = 2, point_size = 1.5)
+
+```
+
+
+```{r}
+#Beige
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("TBX1","SP100","SLC27A1","NR2F6","CD40"),
+               cow_n_col = 2, point_size = 1.5)
+
+```
+
+
+```{r}
+#BAT
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("BMP7","PREX1","EVA1A","EVA1B","EVA1C"),
+               cow_n_col = 2, point_size = 1.5)
+
+```
+
+
+
+
+
+# Spatial Gene expression after dimension reduction for specific genes
+```{r}
+# umap plots
+dimFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
+              feats = c("APOE","FABP4"),
+              cow_n_col = 2, point_size = 1.5,
+              save_param = list(base_width = 10, base_height = 5))
+
+```
+
+#Testing more gene, especially more beige or brown fat cell marker genes
+
+
+# Do the Spatial co-expression module
+# Calculate spatially variable genes
+```{r}
+#Create a spatial network first
+#Create a spatial network based on cell centroid physical distances.
+visium_sample_119B <- createSpatialNetwork(gobject = visium_sample_119B,
+                                     method = 'kNN', k = 15, #5
+                                     maximum_distance_knn = 400,
+                                     name = 'spatial_network')
+
+showGiottoSpatNetworks(visium_sample_119B)
+
+spatPlot2D(gobject = visium_sample_119B,  show_network= T,
+           network_color = 'blue', spatial_network_name = 'spatial_network', axis_text = 12, axis_title = 12)
+
+```
+
+
+#Identify top ranks spatially correlated genes
+```{r}
+#you can identify spatial genes with any type of method, here we will use the binSpect method
+## rank binarization
+
+#BinSpect (Binary Spatial Extraction of genes) is a fast computational method that identifies genes with a spatially coherent expression pattern.
+ranktest = binSpect(visium_sample_119B, bin_method = 'rank',
+                    calc_hub = T, hub_min_int = 5,
+                    spatial_network_name = 'spatial_network')
+
+#calc_hub -> calculate the number of hub cells
+#hub_min_int -> minimum number of cell-cell interactions for a hub cell
+
+spatFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
+               feats = ranktest$feats[1:9], cow_n_col = 3, point_size = 1.5 ,legend_text = 6, axis_text = 6)
+
+
+```
+
+```{r}
+#Top 50 rank spatial genes
+ranktest$feats[1:50]
+```
+
+#Identify top spatially correlated genes to the specific gene of interest
+```{r}
+# 1. cluster the top 700 spatial genes into 20 clusters
+ext_spatial_genes = ranktest[1:700,]$feats
+
+# here we use existing detectSpatialCorGenes function to calculate pairwise distances between genes (but set network_smoothing=0 to use default clustering)
+#detectSpatialCorFeats() -- Detect features that are spatially correlated
+spat_cor_netw_DT = detectSpatialCorFeats(visium_sample_119B,
+                                         method = 'network',
+                                         spatial_network_name = 'spatial_network',
+                                         subset_feats = ext_spatial_genes)
+
+# 2. identify most similar spatially correlated genes for one gene #Shows and filters spatially correlated features
+#Find the top n genes that is most spatially related to the gene of your interest
+top10_APOE_genes = showSpatialCorFeats(spat_cor_netw_DT, feats = 'APOE', show_top_feats = 10)
+top10_APOE_genes                                                                    #show top related features per gene
+
+```
+
+
+```{r}
+# plot the spatial expression of top n genes that is most spatially related to the gene of your interest
+
+#pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/APOE_spat_related_genes.pdf",width = 8, height = 15)
+
+spatFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
+               feats = top10_APOE_genes$variable[1:9], point_size = 1.8, axis_text = 7, axis_title = 9, cow_rel_h = 7 , cow_rel_w = 9 , legend_text = 7,cow_n_col = 3)
+
+#dev.off()
+```
+
+#Use heatmap to confirm that these 10 spatially correlated genes with AOPE gene
+```{r}
+## provide a list of APOE spatially correlated genes you want to compare
+comparePolygonExpression(visium_sample_119B,
+                         polygon_name = "selections_multi_regions",
+                         selected_feats = c('APOE','APOC1','TYROBP','C1QB','C1QA','IFI27','C1QC','CD74','TREM2','CD52'))
+```
+```{r} 
+#FABP4 related spatial gene
+
+top10_FABP4_genes = showSpatialCorFeats(spat_cor_netw_DT, feats = 'FABP4', show_top_feats = 10)
+top10_FABP4_genes  
+ 
+spatFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
+               feats = top10_FABP4_genes$variable[1:10], point_size = 2, axis_text =9, axis_title = 10, cow_rel_h = 7 , cow_rel_w = 9 , legend_text = 7,cow_n_col = 3)
+
+```
+
+
+# Cluster and visualize spatially correlated genes
+```{r}
+# use the heatmap to identify spatial co-expression modules and adjust the number of clusters (k) accordingly
+# 3. identify potenial spatial co-expression (from top n genes you subset before)
+# cluster spatial genes
+# clusterSpatialCorFeats() -- Cluster based on spatially correlated features # k = number of clusters to extract
+spat_cor_netw_DT = clusterSpatialCorFeats(spat_cor_netw_DT, name = 'spat_netw_clus', k =9) #7
+
+# The following can get the gene names and the # of the cluster those gene belongs to!
+#spat_cor_netw_DT$cor_clusters$spat_netw_clus[spat_cor_netw_DT$cor_clusters$spat_netw_clus == 7]
+
+# If you only want the gene names 
+# names(spat_cor_netw_DT$cor_clusters$spat_netw_clus[spat_cor_netw_DT$cor_clusters$spat_netw_clus == 7])
+
+
+# visualize clusters
+heatmSpatialCorFeats(visium_sample_119B,
+                     spatCorObject = spat_cor_netw_DT,
+                     use_clus_name = 'spat_netw_clus',
+                     heatmap_legend_param = list(title = NULL),
+                     save_param = list(base_height = 6, base_width = 8, units = 'cm'))
+```
+
+
+```{r}
+# 4. rank spatial correlated clusters and show genes for selected clusters
+# Rank spatial correlated clusters according to correlation structure
+#Generate the plot that represent ......
+netw_ranks = rankSpatialCorGroups(visium_sample_119B,
+                                  spatCorObject = spat_cor_netw_DT, use_clus_name = 'spat_netw_clus',
+                                  save_param = list(  base_height = 3, base_width = 5), show_plot = T)
+netw_ranks
+```
+
+
+```{r}
+# Shows and filters spatially correlated features
+
+# selected_clusters -> subset of clusters to show # show_top_feats -> show top features per gene #selected_clusters -> the value means the specific cluster you would like to know
+top_netw_spat_cluster = showSpatialCorFeats(spat_cor_netw_DT, use_clus_name = 'spat_netw_clus', selected_clusters = 4, show_top_feats = 2)
+top_netw_spat_cluster
+```
+
+#Create metagenes/co-expression modules and visualize
+```{r}
+#extract a balanced set of genes from each co-expression module. #aggregate genes into metagenes. 
+cluster_genes = getBalancedSpatCoexpressionFeats(spat_cor_netw_DT, maximum = 50)
+                                                # maximum represent the max number of genes extract from each cluster
+cluster_genes
+```
+
+
+```{r}
+visium_sample_119B = createMetafeats(visium_sample_119B, feat_clusters = cluster_genes, name = 'cluster_metagene')
+# the Metafeats info will be store in the "visium_sample_119B@spatial_enrichment$cell$rna$cluster_metagene@enrichDT" -- normalized rna expression values were used in this function
+
+# Visualize cells according to spatial coordinates
+spatCellPlot2D(visium_sample_119B,
+             spat_enr_names = 'cluster_metagene',
+             cell_annotation_values = as.character(c(1:9)), #	numeric cell annotation columns  #1:7
+             cow_n_col = 3, point_size = 1.5 ,legend_text = 8, axis_text = 8 , axis_title = 10)
+
+```
+
+
+# Subset the genes in the clusters that we are interested in 
+```{r}
+#Subet cluster 3 & 4 that match to the adipose tissue # ext_spatial_genes = ranktest[1:500,]$feats
+metagenes_3 <-names(cluster_genes[cluster_genes == 3])
+metagenes_4 <-names(cluster_genes[cluster_genes == 4])
+metagenes_6 <-names(cluster_genes[cluster_genes == 6])
+
+```
+# Convert symbol to ensembl ID
+```{r}
+library(SeqGSEA)
+cluser3_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_3)
+cluser4_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_4)
+cluser6_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_6)
+cluser3_ensem
+cluser4_ensem
+cluser6_ensem
+```
+
+
+```{r}
+### This is only selecting 40 features in each cluster
+library(SeqGSEA)
+#Convert symbol to ensembl ID
+ cluster3_ensem <- SeqGSEA::convertSymbol2Ensembl(c("IGFBP7", "SULF1", "TAGLN", "SFRP2", "CD74", "C1QB", "HTRA3", "SPARC", "MYL6", "COL4A2", "COL4A1", "C1QA", "COL1A1", "C1QC", "THY1", "IFI27", "ACTB", "VCAN", "ACTA2", "MMP11", "APOE", "CST3", "IFI30", "TREM2", "TYROBP", "HTRA1", "COL1A2", "TPM1", "APOC1", "SLCO2B1", "SUGCT", "CD14", "ASPN", "PLVAP", "COL5A1", "PECAM1", "MFAP2", "COMP", "TPSB2", "SCT"))%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+ 
+  cluster4_ensem <- SeqGSEA::convertSymbol2Ensembl(c("TMSB4X", "S100A1", "CRABP2", "KRT23", "TUBB3", "KRT7", "TUBB2A", "DMKN", "LSR", "MMP7", "SELENOW", "ACTG2", "S100A11", "CRYAB", "DNAJC15", "S100A16", "RHOC", "TMED9", "CALM2", "ELN", "COTL1", "PFN1", "TAGLN2", "CFL1", "TUBA1A", "TNFRSF12A", "HSPB1", "UCHL1", "PYCARD", "SERF2", "CLDN4", "CHI3L2", "RBP1", "DSG1", "DBNDD1", "SDC1", "S100A6", "TMSB10", "S100A13", "PPIA"))%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+
+```
+
+
+```{r}
+#Subet cluster 3 & 7 that match to the adipose tissue # ext_spatial_genes = ranktest[1:700,]$feats
+metagenes_3 <-names(cluster_genes[cluster_genes == 3])
+metagenes_7 <-names(cluster_genes[cluster_genes == 7])
+metagenes_6 <-names(cluster_genes[cluster_genes == 6])
+metagenes_1 <-names(cluster_genes[cluster_genes == 1])
+```
+
+```{r}
+# Convert symbol to ensembl ID
+library(SeqGSEA)
+cluser1_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_1)
+cluser3_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_3)
+cluser7_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_7)
+cluser6_ensem <- SeqGSEA::convertSymbol2Ensembl(metagenes_6)
+cluser3_ensem
+cluser7_ensem
+cluser6_ensem
+cluser1_ensem
+```
+
+```{r}
+### This is only selecting 40 features in each cluster
+cluser3_ensem$ensembl_gene_id
+cluser7_ensem$ensembl_gene_id
+cluser6_ensem$ensembl_gene_id
+cluser1_ensem$ensembl_gene_id
+```
+
+
+
+
+# Spatially informed clustering
+```{r}
+#Here we illustrate how to use information from #5 Spatial correlated genes# as input for clustering using the standard pipeline (PCA > nearest-neighbors > leiden clusters).
+all_spatial_genes = names(cluster_genes)
+
+visium_sample_119B <- runPCA(gobject = visium_sample_119B,
+                      feats_to_use = all_spatial_genes,
+                      name = 'meta_clusters_pca')
+```
+
+
+```{r}
+visium_sample_119B <- runUMAP(visium_sample_119B,
+                       dim_reduction_name = 'meta_clusters_pca',
+                       dimensions_to_use = 1:20,
+                       name = 'meta_clusters_umap',verbose = T)
+```
+
+
+```{r}
+visium_sample_119B <- createNearestNetwork(gobject = visium_sample_119B,
+                                    dim_reduction_name = 'meta_clusters_pca',
+                                    dimensions_to_use = 1:20, k = 5,
+                                    name = 'meta_clusters_NN',verbose = T)
+```
+
+
+```{r}
+visium_sample_119B <- doLeidenCluster(gobject = visium_sample_119B,
+                               network_name = 'meta_clusters_NN',
+                               resolution = 0.15, n_iterations = 1000, #resolution = 0.15
+                               name = 'meta_clusters_leiden')
+```
+
+```{r}
+spatPlot2D(visium_sample_119B,
+           cell_color = 'meta_clusters_leiden', point_size = 3, show_image = T,
+           legend_text = 10, axis_text = 10 , axis_title = 11)
+```
+
+```{r}
+plotUMAP(gobject = visium_sample_119B,
+         cell_color = 'meta_clusters_leiden', show_NN_network = T, point_size = 3)
+```
+
+```{r}
+saveRDS(visium_sample_119B, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_sample_119B.rds")
+```
+
+
+```{r}
+visium_sample_119B<- readRDS("/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_sample_119B.rds")
+
+```
+
+#######################################################################################
+#Part 5 : Run the interactive selection tool
+```{r}
+# could use test[,selections:=NULL] to remove the "selections" column in the data.table
+
+## Plot spatial cells/spots # No tissue image on the background
+spatPlot2D(gobject = visium_sample_119B,
+                          cell_color = 'leiden_clus',
+                          point_size = 1.5,
+                          point_alpha = 0.5,
+                          show_image = FALSE)
+
+```
+
+
+```{r}
+# could use test[,selections:=NULL] to remove the "selections" column in the data.table
+
+## Plot spatial cells/spots with tissue on the background
+## Prepare for the ploygon selection
+s119B_spatPlot <- spatPlot2D(gobject = visium_sample_119B,
+                      point_size = 2,
+                      point_alpha = 0.5,
+                      show_image = TRUE)
+
+s119B_spatPlot
+```
+
+
+# Select ploygon
+# Save the coordinates
+```{r}
+## The polygon coordinates will be saved as a data.table object
+s119B_spatPlot_coordinates <- plotInteractivePolygons(s119B_spatPlot)
+s119B_spatPlot_coordinates
+```
+```{r}
+# add the polygon coordinates to the Giotto object:
+## We must transform the data.table or data.frame with coordinates into a Giotto polygon object
+s119B_polygons <- createGiottoPolygonsFromDfr(s119B_spatPlot_coordinates, name = 'selections_multi_regions')
+s119B_polygons
+```
+
+
+```{r}
+## Then, add the polygons to the Giotto object
+visium_sample_119B <- addGiottoPolygons(gobject = visium_sample_119B,
+                                  gpolygons = list(s119B_polygons))
+```
+
+
+```{r}
+## Using the default parameters
+visium_sample_119B <- addPolygonCells(visium_sample_119B,
+                                polygon_name = 'selections_multi_regions')
+
+## Let's see how it looks like now the cell_metadata
+pDataDT(visium_sample_119B)
+
+```
+# Get the cells located within each polygon
+```{r}
+## Provide the name of the polygon to extract cells from
+adipo_cells <-getCellsFromPolygon(visium_sample_119B,
+                    polygon_name = 'selections_multi_regions',
+                    polygons = 'adipo')
+adipo_cells # This is a spatial vector
+            # polygon1_cells$cell_ID can get all the cells in adipo polygon
+
+```
+
+```{r}
+## Provide the name of the polygon to extract cells from
+adjacent_cells <-getCellsFromPolygon(visium_sample_119B,
+                    polygon_name = 'selections_multi_regions',
+                    polygons = 'adjacent')
+adjacent_cells # This is a spatial vector
+
+```
+```{r}
+## Provide the name of the polygon to extract cells from
+far_cells <-getCellsFromPolygon(visium_sample_119B,
+                    polygon_name = 'selections_multi_regions',
+                    polygons = 'far')
+far_cells # This is a spatial vector
+```
+# Compare gene expression (you need to specify the genes you are interested in and if the genes are not in the vector you provided, it will give you errors)
+```{r}
+## provide a list of genes you want to compare
+comparePolygonExpression(visium_sample_119B,
+                         polygon_name = "selections_multi_regions",
+                         selected_feats = c('APOE','FABP4','CEBPA','FASN','LPL','GPD1', 'SREBF1'))
+
+#s119_feats <-visium_sample_119B@feat_ID$rna
+#symbols_to_check %in% s119_feats 
+
+
+```
+
+
+```{r}
+## provide a list of genes that are highly express across all ploygons of top30 genes in each polygon 
+comparePolygonExpression(visium_sample_119B,
+                         polygon_name = "selections_multi_regions",
+                         selected_feats = c('CRABP2', 'MMP7', 'TMSB4X', 'TAGLN2', 'SELENOW', 'S100A16', 'S100A11', 'S100A13','S100A1', 'TMEM176A','KRT8','CLU','APOE', 'FABP4'))
+
+#s119_feats <-visium_sample_119B@feat_ID$rna
+#symbols_to_check %in% s119_feats 
+```
+# Part 6: marker gene detection for clusters
+
+```{r}
+## Or calculate the top genes expressed within each region, then provide the result to compare polygons.
+scran_results <- findMarkers_one_vs_all(visium_sample_119B,
+                                        spat_unit = 'cell',
+                                        feat_type = 'rna',
+                                        method = 'scran',
+                                        expression_values = 'normalized',
+                                        cluster_column = 'selections_multi_regions',
+                                        min_feats = 10)
+
+top_genes <- scran_results[, head(.SD, 100), by = 'cluster']$feats
+top30_genes <- scran_results[, head(.SD, 30), by = 'cluster']$feats
+```
+
+```
+##top_genes
+  [1] "CRABP2"       "CFL1"         "S100A16"      "MMP7"         "SFRP2"        "COTL1"       
+  [7] "SDC1"         "TMSB4X"       "TUBA1A"       "ACTB"         "DMKN"         "SPARC"       
+ [13] "SULF1"        "TMED9"        "TPM1"         "TMSB10"       "TAGLN"        "MYL6"        
+ [19] "IGFBP7"       "ACTG2"        "ID3"          "PFN1"         "TAGLN2"       "CCND1"       
+ [25] "KRT5"         "SELENOW"      "SERF2"        "OST4"         "CAVIN3"       "COLGALT1"    
+ [31] "ACTA2"        "KRT23"        "HTRA1"        "COL3A1"       "TPM4"         "HTRA3"       
+ [37] "S100A11"      "COL5A2"       "LUM"          "TUBA1B"       "S100A6"       "COL1A1"      
+ [43] "LGALS1"       "COMP"         "MYH9"         "TYMP"         "MXRA8"        "ST14"        
+ [49] "POSTN"        "RHOC"         "RBP1"         "MYL9"         "S100A4"       "MMP11"       
+ [55] "CAPG"         "TNFRSF12A"    "GSTP1"        "FBN1"         "CD74"         "S100A13"     
+ [61] "ACADVL"       "CTHRC1"       "FKBP10"       "COL1A2"       "ANXA2"        "C1QA"        
+ [67] "VCAN"         "C1QB"         "NDUFS6"       "RHOB"         "FSTL1"        "MGAT4B"      
+ [73] "TAX1BP3"      "THY1"         "RABAC1"       "C5orf46"      "COL12A1"      "CLTB"        
+ [79] "YWHAH"        "ASPN"         "COL18A1"      "KRT7"         "HSPB1"        "TUBB2A"      
+ [85] "CD151"        "ADAMTS2"      "MT-CO1"       "LOXL1"        "UQCR11"       "MT-CO3"      
+ [91] "C1QC"         "CRIP2"        "AEBP1"        "CD99"         "TPM2"         "LMNA"        
+ [97] "TUBB3"        "FLNA"         "S100A1"       "COL5A1"       "CRABP2"       "MMP7"        
+[103] "TMEM176A"     "KRT23"        "NME2"         "S100A11"      "SELENOW"      "UBL5"        
+[109] "S100A1"       "TMEM176B"     "LSR"          "S100A14"      "CLDN4"        "KRT8"        
+[115] "TAGLN2"       "CLDN3"        "FRZB"         "CLU"          "CREG1"        "TMSB4X"      
+[121] "S100A16"      "CALB2"        "PRDX5"        "PRELID1"      "IL34"         "S100A13"     
+[127] "ADGRG1"       "DDA1"         "KRT7"         "PODXL"        "TMSB10"       "TMEM256"     
+[133] "IFITM3"       "CLDN7"        "PYCARD"       "DEPP1"        "PRSS8"        "KLF6"        
+[139] "TMED9"        "CRYAB"        "JUP"          "DMKN"         "COX6B1"       "FABP5"       
+[145] "MGST3"        "CHI3L2"       "ALKBH7"       "SDC1"         "FXYD3"        "S100A6"      
+[151] "TMEM219"      "ANXA2"        "LAMTOR2"      "MRPL36"       "PCSK1N"       "LMAN2"       
+[157] "LGALS1"       "HIGD2A"       "NDUFV2"       "SRI"          "MYL12A"       "MYL12B"      
+[163] "RBP1"         "RCSD1"        "KRT18"        "TPT1-AS1"     "KRT19"        "ATP5ME"      
+[169] "SIAE"         "SUB1"         "MICOS13"      "RGS10"        "NDUFA1"       "GABARAP"     
+[175] "OST4"         "NDUFA7"       "VTCN1"        "A1BG"         "NIPSNAP1"     "CCND1"       
+[181] "RAB32"        "ARF5"         "HSPB1"        "GPI"          "TMEM147"      "MTLN"        
+[187] "CAPG"         "DNAJC15"      "WDR83OS"      "ACTG2"        "S100A9"       "RPS27L"      
+[193] "TSC22D1"      "TMEM258"      "TCEAL4"       "FAM83H"       "PSMB4"        "SEM1"        
+[199] "SHANK2"       "CLTB"         "TMEM123"      "FARSA-AS1"    "CLU"          "CCDC71L"     
+[205] "HIST1H1C"     "SOD2"         "ARF5"         "TMEM176A"     "NAMPT"        "SYPL1"       
+[211] "RPL36"        "NUPR1"        "TRIM2"        "DRAP1"        "KRT8"         "PRELP"       
+[217] "TOB1"         "SLC7A5"       "FZD8"         "RPL8"         "ZFP36L2"      "JUND"        
+[223] "RHEB"         "FTH1"         "SMARCD3"      "FTL"          "ESYT2"        "MIF"         
+[229] "MTHFD2"       "BHLHE40"      "SELENOM"      "CD9"          "KRT19"        "RPL28"       
+[235] "TSTD1"        "MATN2"        "STC2"         "NME2"         "KHDRBS3"      "SPON2"       
+[241] "CNN3"         "RPS19BP1"     "GPNMB"        "UAP1"         "BOD1"         "VEGFA"       
+[247] "SLC39A4"      "LY6D"         "PRSS8"        "SBSN"         "RPL18"        "DNAJB1"      
+[253] "CEBPD"        "SQSTM1"       "JUNB"         "COX6B1"       "SARS"         "TMEM176B"    
+[259] "LBP"          "A1BG"         "EFNA1"        "CEBPG"        "GUK1"         "KRT16"       
+[265] "AK4"          "PLEKHF1"      "CITED2"       "SLURP1"       "GFPT2"        "STOM"        
+[271] "TNFRSF1A"     "SERPINH1"     "ADAMTS1"      "SOD3"         "STMP1"        "YIPF2"       
+[277] "STEAP3"       "ALDOA"        "GPT"          "PYCR1"        "MYC"          "GFPT1"       
+[283] "IFRD1"        "HILPDA"       "MEAF6"        "SPIRE1"       "HSP90AB1"     "SERPINA3"    
+[289] "FRZB"         "FADS3"        "SUSD2"        "CLDN15"       "RPS8"         "AP000851.2"  
+[295] "SEZ6L2"       "YY1"          "TM4SF1"       "CAPNS1"       "RPS28"        "WIPI1"       
+[301] "RPS23"        "PABPC1"       "EEF1A1"       "RPL30"        "CRLF1"        "RPS6"        
+[307] "RPL7A"        "RPS18"        "GAS5"         "AZGP1"        "FBXO32"       "RPS10"       
+[313] "RPL32"        "SOX4"         "AARD"         "MIR205HG"     "EEF1D"        "RPL12"       
+[319] "RPS15A"       "MTRNR2L12"    "RPS29"        "NCAN"         "TMSB15A"      "MALAT1"      
+[325] "S100B"        "CPE"          "WIF1"         "RPL14"        "ROPN1"        "DEK"         
+[331] "MT2A"         "RPL23A"       "IFITM1"       "ACTG1"        "RPL35A"       "RGS2"        
+[337] "RPL15"        "COL2A1"       "FABP7"        "LTF"          "NRN1"         "NSA2"        
+[343] "IGHG3"        "RPS3"         "MDK"          "S100P"        "IGKC"         "IL6"         
+[349] "ASPH"         "SPOCK2"       "COL9A3"       "PTGES"        "RFLNB"        "PEG10"       
+[355] "LDHB"         "EIF3H"        "NAP1L1"       "BTF3"         "TBCA"         "RPL21"       
+[361] "RPS24"        "CD44"         "PACRG"        "RPL39"        "P4HA1"        "RPL37A"      
+[367] "PLIN2"        "PTGFR"        "PRPH"         "RAD21"        "LEFTY2"       "CA9"         
+[373] "TMEM139"      "SELENOP"      "RPL41"        "GLRX"         "ASPM"         "MTRNR2L8"    
+[379] "WNT6"         "LHX3"         "RBP7"         "ANP32B"       "CP"           "MOXD1"       
+[385] "NDRG1"        "RPL38"        "CTNND2"       "PNRC1"        "ITGA9"        "RHOBTB3"     
+[391] "CCDC3"        "CCNE2"        "EPB41L4A-AS1" "TCF19"        "SNORC"        "AL583785.1"  
+[397] "INTS13"       "INAVA"        "RPS3A"        "TUBB"  
+```
+
+```{r}
+topgenes_heatmap <- comparePolygonExpression(visium_sample_119B, polygon_name = "selections_multi_regions",
+                         selected_feats = top30_genes, method = "scran", expression_values = "normalized")
+# This function do not save the plot
+topgenes_heatmap
+pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/top30genes_heatmap_multi_regions.pdf",width = 8, height = 15)
+plot(topgenes_heatmap)
+dev.off()
+```
+
+```{r}
+library(SeqGSEA)
+#Convert symbol to ensembl ID
+ adipo1_ensem <- SeqGSEA::convertSymbol2Ensembl(top_genes[1:100])%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+ 
+```
+
+```{r}
+#Convert symbol to ensembl ID
+ adjacent_ensem <- SeqGSEA::convertSymbol2Ensembl(top_genes[101:200])%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+
+```
+
+```{r}
+#Convert symbol to ensembl ID
+ far_ensem <- SeqGSEA::convertSymbol2Ensembl(top_genes[201:300])%>%
+   dplyr::select(ensembl_gene_id)%>%
+   as.vector()
+
+```
+
+
+```{r}
+save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_119B.RData")
+```
+
+```{r}
+load(file ="/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_119B.RData" )
+```
+
+
+
+
+
+
+
+# ###############################################################################
+# Plot with group by: (optional)
+```{r}
+spatPlot2D(visium_sample_95B, cell_color = 'leiden_clus',
+           group_by = 'leiden_clus', coord_fix_ratio = 1,
+           cow_n_col = 6, show_legend = F,
+           save_param = list(base_width = 14, base_height = 14))
+#Highlight one or more groups: (optional)
+spatPlot2D(visium_sample_95B, cell_color = 'leiden_clus',
+           select_cell_groups = '8', coord_fix_ratio = 1, show_other_cells = TRUE,
+           cell_color_code = c('8' = 'red'), other_cell_color = "grey", other_point_size = 1.5,
+           save_param = list(base_width = 7, base_height = 7))
+```
+
+# Part 5: subset data (Do not need right now )
+```{r}
+# create and show subset
+DG_subset = subsetGiottoLocs(visium_sample_95B,
+                             x_max = 6500, x_min = 3000,
+                             y_max = -2500, y_min = -5500,
+                             return_gobject = TRUE)
+# (x and y means the coordinate on the plots)
+
+spatDimPlot(gobject = DG_subset,
+            cell_color = 'leiden_clus', spat_point_size = 5)
+```
+
+
+```{r}
+full_image<-createGiottoLargeImage("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/119B.tif")
+
+plot(full_image)
+
+
+
+
+scale_json_path = '/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_scalefactors_json.json'
+scalefactors = jsonlite::read_json(scale_json_path)
+
+
+
+# Generates deep copy of SpatRaster
+full_image<-createGiottoLargeImage("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/119B.tif")
+
+#put an large image in the Giotto object
+visium_sample_119B <- setGiottoImage(visium_sample_119B, image = "largeImage")
+
+visium_sample_119B@largeImages <- list(image = full_image)
+
+showGiottoImageNames(visium_sample_119B) #know the information of the images store in the Giotto object 
+
+#Get all the spatial location
+sl= getSpatialLocations(visium_sample_119B)
+
+#Get a test cell have smallest x coordinate
+testcell = sl[][sdimx == min(sdimx),]
+
+#Get the scale factors that is used here
+scale_json_path = '/projectnb/rd-spat/HOME/ivycwf/GSE210616/119B/GSM6433605_119B_scalefactors_json.json'
+
+#Read in the scale factor file
+scalefactors = jsonlite::read_json(scale_json_path)
+
+
+fullsize_sr = full_image@raster_object
+
+save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_119B_full_image.RData")
+
+
+#$fiducial_diameter_fullres -- 324.4803
+
+extent_region <- testcell$sdimx+
+patch_size <- extent(testcell)
+
+
+
