@@ -23,9 +23,9 @@ reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_
 
 
 # Load resnet50 model for featurization and specify input_shape # the input_shape is the shape of the individual tile -- the resolution (ex: dimension of ff1)
-resnet_model_shape <- keras::application_resnet50(weights = "imagenet", include_top = FALSE, pooling = "max", input_shape = c(105, 105, 3)) 
+resnet_model_shape <- keras::application_resnet50(weights = "imagenet", include_top = FALSE, pooling = "max", input_shape = c(100, 100, 3)) 
 
-pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles"
+pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_89x103_tiles"
 list_files = list.files(pilot_folder, pattern = 's119B_\\d+\\.tif$', full.names = T)
 
 

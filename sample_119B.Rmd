@@ -78,7 +78,7 @@ visium_sample_119B = subsetGiotto(visium_sample_119B, cell_ids = in_tissue_barco
 
 ## filter
 visium_sample_119B <- filterGiotto(gobject = visium_sample_119B,
-                              expression_threshold = 1, #3 #2
+                              expression_threshold = 1, # 2 or 3 
                               feat_det_in_min_cells = 50,
                               min_det_feats_per_cell = 1000,#1100
                               expression_values = c('raw'),
@@ -96,14 +96,14 @@ spatPlot2D(gobject = visium_sample_119B, show_image = T, point_alpha = 0.7,
 # nr_feats is in "visium_sample_95B@cell_metadata$cell$rna"
 
 filt_3_1100_spots <- pDataDT(visium_sample_119B)
-save(visium_sample_119B, filt_3_1100_spots, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/increase_res/patches/visium_119B_spots.RData")
+#save(visium_sample_119B, filt_3_1100_spots, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/increase_res/patches/visium_119B_spots.RData")
 ```
 
 
 # Part 3: Dimention Reduction
 ```{r}
 ## highly variable features / genes (HVF)
-visium_sample_119B <- calculateHVF(gobject = visium_sample_119B, save_plot = TRUE, show_plot = T)
+visium_sample_119B <- calculateHVF(gobject = visium_sample_119B, save_plot = F, show_plot = T) #save_plot = T
 ```
 
 ```{r}
@@ -117,14 +117,14 @@ visium_sample_119B <- runPCA(gobject = visium_sample_119B,
 
 screePlot(visium_sample_119B, ncp = 30)
 
-dimPlot2D(gobject = visium_sample_119B, dim_reduction_to_use = "pca",point_size = 3, axis_text = 12, axis_title = 12)
+dimPlot2D(gobject = visium_sample_119B, dim_reduction_to_use = "pca",point_size = 2, axis_text = 12, axis_title = 12, save_plot = F)
 ```
 
 
 ```{r}
 ## run UMAP and tSNE on PCA space (default)
 visium_sample_119B <- runUMAP(visium_sample_119B, dimensions_to_use = 1:10)
-plotUMAP(gobject = visium_sample_119B, point_size = 3, axis_text = 12, axis_title = 12)
+plotUMAP(gobject = visium_sample_119B, point_size = 2, axis_text = 12, axis_title = 12)
 ```
 
 
@@ -165,11 +165,13 @@ spatPlot2D(visium_sample_119B, cell_color = 'leiden_clus', show_image = T, save_
 ```
 # Spatial Gene expression on features for specific genes
 ```{r}
-#Share 
+#Shared genes related to adipose tissue
 spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
                feats = c("APOE","TMEM120B","HOXC9","EPSTI1","MTUS1"),
                cow_n_col = 2, point_size = 1.5)
 ```
+
+
 ```{r}
 #WAT
 spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
@@ -195,8 +197,6 @@ spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
                cow_n_col = 2, point_size = 1.5)
 
 ```
-
-
 
 
 
@@ -281,7 +281,7 @@ top10_APOE_genes                                                                
 #pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/APOE_spat_related_genes.pdf",width = 8, height = 15)
 
 spatFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
-               feats = top10_APOE_genes$variable[1:9], point_size = 1.8, axis_text = 7, axis_title = 9, cow_rel_h = 7 , cow_rel_w = 9 , legend_text = 7,cow_n_col = 3)
+               feats = top10_APOE_genes$variable[1:9], point_size = 1.8, axis_text = 7, axis_title = 9, cow_rel_h = 7 , cow_rel_w = 9 , legend_text = 7,cow_n_col = 3, save_plot = F)
 
 #dev.off()
 ```
@@ -293,6 +293,7 @@ comparePolygonExpression(visium_sample_119B,
                          polygon_name = "selections_multi_regions",
                          selected_feats = c('APOE','APOC1','TYROBP','C1QB','C1QA','IFI27','C1QC','CD74','TREM2','CD52'))
 ```
+
 ```{r} 
 #FABP4 related spatial gene
 
@@ -300,7 +301,8 @@ top10_FABP4_genes = showSpatialCorFeats(spat_cor_netw_DT, feats = 'FABP4', show_
 top10_FABP4_genes  
  
 spatFeatPlot2D(visium_sample_119B, expression_values = 'scaled',
-               feats = top10_FABP4_genes$variable[1:10], point_size = 2, axis_text =9, axis_title = 10, cow_rel_h = 7 , cow_rel_w = 9 , legend_text = 7,cow_n_col = 3)
+               feats = top10_FABP4_genes$variable[1:10], point_size = 2, axis_text =9, axis_title = 10, cow_rel_h = 7,
+               cow_rel_w = 9 , legend_text = 7,cow_n_col = 3, save_plot = F)
 
 ```
 
@@ -451,15 +453,16 @@ visium_sample_119B <- runPCA(gobject = visium_sample_119B,
 ```{r}
 visium_sample_119B <- runUMAP(visium_sample_119B,
                        dim_reduction_name = 'meta_clusters_pca',
-                       dimensions_to_use = 1:20,
+                       dimensions_to_use = 1:10, # 1:20
                        name = 'meta_clusters_umap',verbose = T)
+screePlot(visium_sample_119B, ncp = 30)
 ```
 
 
 ```{r}
 visium_sample_119B <- createNearestNetwork(gobject = visium_sample_119B,
                                     dim_reduction_name = 'meta_clusters_pca',
-                                    dimensions_to_use = 1:20, k = 5,
+                                    dimensions_to_use = 1:10, k = 5, #1:20
                                     name = 'meta_clusters_NN',verbose = T)
 ```
 
