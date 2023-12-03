@@ -80,12 +80,14 @@ patch_tile_info <- dplyr::right_join(patches_info, tile_name, by = c("patch_numb
 
 
 #Get normalized visium gene expression of all genes
-norm_expr_mt <-Giotto::getExpression(visium_sample_119B, values = "normalized",spat_unit = "cell", feat_type = "rna", output = "matrix")%>% 
+norm_expr_mt <-Giotto::getExpression(visium_sample_119B, values = "scaled",spat_unit = "cell", feat_type = "rna", output = "matrix")%>% 
   as.matrix()
 
 
 #Get the expression values of specific spatial genes   #"APOE","APOC1","TYROBP","C1QB","C1QA","IFI27","C1QC","CD74","TREM2","CD52","MMP7"
-spatial_genes <- t(norm_expr_mt[c("APOE","MMP7"), , drop = FALSE]) %>% 
+#spatial_genes <- t(norm_expr_mt[c("APOE","MMP7"), , drop = FALSE]) %>% 
+  #as.data.frame()
+spatial_genes <- t(norm_expr_mt[c("SPARC","MKI67"), , drop = FALSE]) %>% 
   as.data.frame()
 spatial_genes <-  mutate(spatial_genes, cell_ID = rownames(spatial_genes))
 patch_tile_info <- dplyr::inner_join(patch_tile_info, spatial_genes, by = c("cell_ID" = "cell_ID"))
