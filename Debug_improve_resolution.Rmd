@@ -1,0 +1,331 @@
+---
+title: "Debug_improve_resolution"
+output: html_document
+date: "2023-09-22"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Check how amny clusters belongs to the edge clusters ()
+
+```{r - **merge tiles with all clusters**}
+# comb_res is a dataframe which has the tiles name and the cluster the tile belongs to
+#Get all the filenames of tiles in a list 
+load("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_89x103_tiles/entireHnE_kmean8_pca10_it500_star100.RData")
+
+# Create an empty list to store the raster objects
+fftiles <- list()
+fftile_rows <- list()
+
+# Function to load raster and preprocess
+load_and_preprocess_raster <- function(tile_name) {
+  tile <- terra::rast(tile_name)
+  if (is.na(any(terra::values(tile) > 255) || any(terra::values(tile) < 0))) {
+      tile_values <- terra::values(tile)
+      NaN_rows <- which(apply(tile_values, 1, function(row) all(is.nan(row))))
+      tile_values[NaN_rows, 1] <- 179
+      tile_values[NaN_rows, 2] <- 184
+      tile_values[NaN_rows, 3] <- 168
+      terra::values(tile) <- tile_values
+  }
+  return(tile)
+}
+
+# Iterate over each kmean value and create a plot
+for (kmean_val in 1:4) {
+  # Get the corresponding tile names for the current kmean value
+  tile_names <- lapply(comb_res[comb_res$kmeans == kmean_val, 1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_89x103_tiles/', x))
+  
+  # Load each raster into the list and preprocess
+  fftiles <- lapply(tile_names, load_and_preprocess_raster)
+  
+  # Stack the rasters in the list on top of each other
+  fftiles_ls <- terra::sprc(fftiles)
+  merge_image <- terra::merge(fftiles_ls)
+  
+  # Plot the merged raster
+  plot_title <- paste("Kmeans =", kmean_val)
+  terra::plot(merge_image, main = plot_title)
+}
+
+```
+
+
+
+## There are too many clusters occupied by edge clusters, 
+
+
+```{r}
+
+```
+
+
+
+
+#Since there are more features than the observations, using PC would not be reliable, instead we would use original features we get from the resnet model to train the model we build
+```{r}
+#the matrix that combine all features of the rows (tiles) -- res_dfr 
+
+# Convert results to matrix (image x features)
+tile_names <- data.frame(tile_name = res_dfr[,1])
+image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) %>% as.data.frame()
+dim(image_mat) #Check how many tiles are not empty
+
+# modify the column names avoid using number as column names
+colnames(image_mat) <- paste0("f", seq_along(image_mat))
+
+```
+
+```{r}
+#Combine the features with the corresponding tile name 
+features_matrix <-cbind(tile_names, image_mat)
+
+#do we have to scale or normalized the features???
+scale()
+                                             
+
+
+#features_matrix$tile_name <- gsub("/s119B_", "s119B_", features_matrix$tile_name)
+input_mat <-data.frame()
+input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:12], by = c("tile_name" = "tile_ID"))
+input_mat[,1]<- sapply(input_mat$tile_name,basename) #input_mat include tile_name, 2040 features, APOE, and MMP7 expression
+
+saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
+
+```
+
+
+#split the dataset 
+```{r}
+#load the imput_mat from RDS file
+input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS")
+
+set.seed(123)
+split = sample.split(input_mat[,1], SplitRatio = 0.8)
+training_set = subset(input_mat, split == TRUE)
+test_set = subset(input_mat, split == FALSE)
+#sampling_index <- createDataPartition(input_mat[,1], times = 1, p = 0.8, list = FALSE) 
+#training_set  <- input_mat[sampling_index, ]
+#test_set <-  input_mat[-sampling_index, ]
+
+
+```
+
+
+#Modeling
+```{r}
+#Model 1: LASSO model
+#fit	LASSO,	need	a	random	seed	because	cross-validation	is	involved	 
+APOE_las_cv <- cv.glmnet(x = as.matrix(training_set[,-c(1, 2050, 2051)]), y = training_set$APOE, alpha = 1)
+
+#Get the optimal lambda
+opt_lambda <-APOE_las_cv$lambda.min
+
+#produce plot of test MSE by lambda value
+plot(APOE_las_cv) #why k is 1???
+
+#find coefficients of best model
+APOE_las <-glmnet( x = as.matrix(training_set[,-c(1,2050, 2051)]), y = training_set$APOE, alpha = 1, lambda = opt_lambda)
+
+coef(APOE_las)
+#No coefficient is shown for the predictor (all original features) because lasso regression shrunk the coefficient all the way to zero. This means it was completely dropped from the model because it wasn’t influential enough.
+
+# Make predictions on the test set
+APOE_preds <- predict(APOE_las, newx =  as.matrix(test_set[,-c(1, 2050, 2051)]), type = "response", s= opt_lambda)
+
+mse =  mean((test_set$APOE - APOE_preds)^2) 
+mae = MAE(test_set$APOE, APOE_preds)
+rmse = RMSE(test_set$APOE, APOE_preds)
+r2 = R2(test_set$APOE, APOE_preds, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+plot(test_set$APOE, APOE_preds)
+scatter.smooth(test_set$APOE, APOE_preds)
+cor(test_set$APOE, APOE_preds)
+
+
+```
+
+#Model 1: #LASSO or elasticnet (glmnet) not using lm because linear regression model need more observations than variables(features) so the PC could be more reliable. -- use original features
+```{r}
+#Model 1 -- LASSO (another method)
+#Create control
+control <- trainControl(method="cv",                            
+                        number = 10,                            
+                        summaryFunction = defaultSummary,                         
+                        savePredictions = 'all')
+
+
+#data preprocessing can also be done in train() function
+APOE_glmnet <- train(APOE~.,                      
+                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]                
+                     method = "glmnet",                      
+                     metric = "RMSE",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+APOE_preds <- predict(APOE_glmnet, newdata = test_set[,-c(1, 2050, 2051)], type = "raw")
+
+#Generate confusion matrix
+cm_APOE = data.frame( APOE = test_set[2050], APOE_pred = APOE_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_APOE <- merge(tile_plot_df[match(cm_APOE$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_APOE, by = "tile_name")
+
+
+mse =  mean((test_set$APOE - APOE_preds)^2) 
+mae = MAE(test_set$APOE, APOE_preds)
+rmse = RMSE(test_set$APOE, APOE_preds)
+r2 = R2(test_set$APOE, APOE_preds, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+```
+#Prepare df for ploting prediciton result
+```{r}
+#Prepare df for ploting
+traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c(9,13,14)], by = "tile_name")
+testing_testdf <- merge(test_set, tile_plot_df[tile_plot_df$tile_name %in% test_set$tile_name, c(9,13,14)], by = "tile_name")
+train_n_test_testdf <- rbind(traing_testdf, testing_testdf)
+
+```
+
+#Plotting results
+```{r}
+#Polt predict expression
+ggplot(cm_APOE, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE_preds)) +
+  scale_colour_gradient2()
+
+#Polt visium gene expression (test set)
+ggplot(cm_APOE, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE)) +
+  scale_colour_gradient2() #low = "blue", high = "red"
+
+#Plot visium gene expression (training set)
+ggplot(traing_testdf, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE)) +
+  scale_colour_gradient2()
+
+#Plot visium gene expression (entire dataset)
+ggplot(train_n_test_testdf, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE)) +
+  scale_colour_gradient2()
+
+#check the distribution of varible with the histogram-- check if is's scaled
+```
+
+#Model 2: Random Forest model
+```{r}
+#the independent observation is violated (the data is correlated)
+APOE_rf <- randomForest(APOE ~ ., data = training_set[, -c(1, 2051)], importance = TRUE)
+
+# Make predictions on the test set
+APOE_rf_preds <- predict(APOE_rf, newdata = test_set[,-c(1, 2050, 2051)], type = "response")
+
+
+#Generate confusion matrix
+cm_APOE_rf = data.frame( APOE = test_set[2050], APOE_pred = APOE_rf_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_APOE_rf <- merge(tile_plot_df[match(cm_APOE_rf$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_APOE_rf, by = "tile_name")
+
+mse =  mean((test_set$APOE - APOE_rf_preds)^2) 
+mae = MAE(test_set$APOE, APOE_rf_preds)
+rmse = RMSE(test_set$APOE, APOE_rf_preds)
+r2 = R2(test_set$APOE, APOE_rf_preds, form = "corr") #change the R-square function
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Polt predict expression
+ggplot(cm_APOE_rf, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE_rf_preds)) +
+  scale_colour_gradient2()
+
+
+plot(test_set$APOE, APOE_rf_preds)
+```
+
+
+
+
+
+#Model 3: Random Forest GBM model
+```{r}
+library(gbm) 
+APOE_gbm <-gbm(APOE~., 
+               data=training_set[,-c(1,2051)],  
+               distribution = "gaussian",   # Distribution of the response variable. "gaussian" for regression.
+               cv.folds = 10,     
+               shrinkage = 0.01,  # Shrinkage parameter (learning rate) to control the contribution of each tree.
+               n.minobsinnode = 10,  # Minimum number of observations in a terminal node of a tree.
+               n.trees = 500
+               ) 
+
+# Make predictions on the test set
+APOE_gbm_preds <- predict(APOE_gbm, newdata = test_set[,-c(1, 2050, 2051)], type = "response")
+
+
+#Generate confusion matrix
+cm_APOE_gbm = data.frame( APOE = test_set[2050], APOE_pred = APOE_gbm_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_APOE_gbm <- merge(tile_plot_df[match(cm_APOE_gbm$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_APOE_gbm, by = "tile_name")
+
+mse =  mean((test_set$APOE - APOE_gbm_preds)^2) 
+mae = MAE(test_set$APOE, APOE_gbm_preds)
+rmse = RMSE(test_set$APOE, APOE_gbm_preds)
+r2 = R2(test_set$APOE, APOE_gbm_preds, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Polt predict expression
+ggplot(cm_APOE_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE_gbm_preds)) +
+  scale_colour_gradient2()
+```
+#Model4:  SVM
+```{r}
+#Use the SVM model 
+svm_mod_APOE <- svm(APOE ~ .,
+                    data = training_set[,-c(1,2051)], #c(1,11)
+                    type = 'eps-regression',
+                    kernel = 'polynomial',
+                    cost = 30)
+
+# Predicting the Test set results (without giving it real expression value)
+#APOE_pred = predict(svm_mod_APOE , newdata = test_set[,-c(1,10,11)])
+APOE_svm_preds = predict(svm_mod_APOE , newdata = test_set[,-c(1,2050, 2051)])
+
+#Generate confusion matrix
+cm_APOE_svm = data.frame( APOE = test_set[2050], APOE_pred = APOE_svm_preds, tile_name = test_set[,1]) #APOE = test_set[10]
+
+
+# Combine the original expression value and predict values with tile coordinates
+cm_APOE_svm <- merge(tile_plot_df[match(cm_APOE_svm$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_APOE_svm, by = "tile_name")
+
+
+mse =  mean((test_set$APOE - APOE_svm_preds)^2) 
+mae = MAE(test_set$APOE, APOE_svm_preds)
+rmse = RMSE(test_set$APOE, APOE_svm_preds)
+r2 = R2(test_set$APOE, APOE_svm_preds, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Polt predict expression
+ggplot(cm_APOE_svm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = APOE_svm_preds)) +
+  scale_colour_gradient2()
+```
+#Using the following code to debug 
+```{r}
+
+plot(test_set$APOE, APOE_rf_preds)
+scatter.smooth(test_set$APOE, APOE_rf_preds)
+cor(test_set$APOE, APOE_rf_preds)
+```
+
+

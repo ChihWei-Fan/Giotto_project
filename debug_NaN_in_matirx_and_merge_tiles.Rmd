@@ -1,0 +1,446 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-07-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+# In the image_mat, row 15:17 are filled with NaN, the following code are used to find out which associating filenames are!
+xempty_tile_ls[15:17]
+
+#tile at row 15
+ff1012 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1012.tif")
+terra::plot(ff1012, main = 'ff1012')
+
+```
+
+```{r}
+ff1012_values <-terra::values(ff1012)
+ff1012_values
+any(ff1012_values>255) # NA ???
+any(ff1012_values<0) # NA???
+```
+
+
+
+```{r}
+ff1013 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1013.tif")
+terra::plot(ff1013, main = 'ff1013')
+```
+
+```{r}
+ff1013_values <-terra::values(ff1013)
+ff1013_values
+any(ff1013_values>255) # NA
+any(ff1013_values<0) # NA
+```
+
+
+
+
+```{r}
+ff1014 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1014.tif")
+terra::plot(ff1014, main = 'ff1014')
+#nrow(terra::values(ff1014))
+```
+
+```{r}
+ff1014_values <-terra::values(ff1014)
+ff1014_values
+any(ff1014_values>255) # NA
+any(ff1014_values<0) # NA
+
+```
+
+```{r}
+# Turn all the NaN to NA
+ff1014_test <- which(apply(ff1014_values, 1, function(row) all(is.nan(row))))
+ff1014_values[ff1014_test, ] <- NA
+terra::values(ff1014) <- ff1014_values
+```
+
+
+```{r}
+ff101 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_101.tif")
+terra::plot(ff101, main = 'ff101')
+```
+
+
+
+```{r}
+ff101_values <-terra::values(ff101)
+#ff101_values
+any(ff101_values>255) # NA
+any(ff101_values<0) # NA
+```
+
+
+```{r}
+# Turn all the NaN to NA
+ff101_test <- which(apply(ff101_values, 1, function(row) all(is.nan(row))))
+ff101_values[ff101_test, ] <- NA
+terra::values(ff101) <- ff101_values
+```
+
+```{r}
+#Get the features of the tile
+test_142 <- res_list[[14]]%>%as.data.frame()
+```
+
+```{r}
+#Test the tile that some portion is being masked
+  print(14)
+  img_path = list_files[[14]] "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_101.tif"
+  
+  # load simple image #by reading TIFF tile
+  tile <- rast(img_path)
+  minmax_RGB <- terra::minmax(tile)
+  
+  #Filter out those empty tiles
+  if (all(!is.nan(minmax_RGB))){
+    xempty_tile_ls[[14]] = list_files[[14]]
+    
+    #Finding those tiles have porttion being mask that cause NaN
+    if (is.na(any(terra::values(tile) > 255) || any(terra::values(tile) < 0))) {
+      tile_values <- terra::values(tile)
+      NaN_rows <- which(apply(tile_values, 1, function(row) all(is.nan(row))))
+      tile_values[NaN_rows, ] <- NA
+      terra::values(tile) <- tile_values
+    } 
+    # convert the image to an array # turn into raster object to array
+    ff_img <- as.array(tile)
+    #ffimg_df2 <-ff_img%>%as.data.frame()
+    #which(is.na(ffimg_df2), arr.ind = TRUE) #Do hace NA or NaN
+    
+    
+    # add an extra dimension (required by the model)
+    ff_img <- reticulate::array_reshape(ff_img, c(1, dim(ff_img)))
+    # preprocess the image
+    ff_img <- keras::imagenet_preprocess_input(ff_img)
+    
+    # extract features
+    ff_features <- resnet_model_shape %>% predict(ff_img)
+    res_list[[14]] = ff_features
+  }
+```
+
+
+
+```{r}
+#Test the tile that is intact
+  print(8)
+  img_path = list_files[[8]] #"/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1004.tif"
+  
+  # load simple image #by reading TIFF tile
+  tile <- rast(img_path)
+  minmax_RGB <- terra::minmax(tile)
+  
+  #Filter out those empty tiles
+  if (all(!is.nan(minmax_RGB))){
+    xempty_tile_ls[[8]] = list_files[[8]]
+    
+    #Finding those tiles have porttion being mask that cause NaN
+    if (is.na(any(terra::values(tile) > 255) || any(terra::values(tile) < 0))) {
+      tile_values <- terra::values(tile)
+      NaN_rows <- which(apply(tile_values, 1, function(row) all(is.nan(row))))
+      tile_values[NaN_rows, ] <- NA
+      terra::values(tile) <- tile_values
+    } 
+    # convert the image to an array # turn into raster object to array
+    ff_img_8 <- as.array(tile)
+    #ffimg_df_8 <-ff_img_8%>%as.data.frame()
+    #which(is.na(ffimg_df_8), arr.ind = TRUE) #No NA or NaN
+    
+    # add an extra dimension (required by the model)
+    ff_img <- reticulate::array_reshape(ff_img, c(1, dim(ff_img)))
+    # preprocess the image
+    ff_img <- keras::imagenet_preprocess_input(ff_img)
+    
+    # extract features
+    ff_features <- resnet_model_shape %>% predict(ff_img)
+    res_list[[14]] = ff_features
+  }
+```
+
+```{r}
+ff1018 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1018.tif")
+terra::plot(ff1018, main = 'ff1018')
+#nrow(terra::values(ff1018))
+```
+
+
+```{r}
+ff1018 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1018.tif")
+ff1019 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1019.tif")
+ff1022 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1022.tif")
+ff1023 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_45x48_tiles/s119B_1023.tif")
+
+combined_raster <- terra::merge(ff1018, ff1019, ff1022,ff1023)
+terra::plot(combined_raster, main = 'ff1018+19')
+#nrow(terra::values(ff1018))
+
+```
+
+
+```{r}
+######## Merge tiles
+# comb_res is a dataframe which has the tiles name and the cluster the tile belongs to
+#Get all the tiles' filename in a list 
+load("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_pca8_kmean8.RData")
+
+tile_names<- lapply(comb_res[comb_res$kmeans == 7,1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/', x))
+
+
+```
+
+
+```{r}
+
+tile_names<- lapply(comb_res[comb_res$kmeans == 7,1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/', x))
+# Create an empty list to store the raster objects
+fftiles <- list()
+fftile_rows <- list()
+
+# Load each raster into the list
+for (tile_i in 1:length(tile_names)) {
+  tile <- terra::rast(tile_names[[tile_i]])
+  if (is.na(any(terra::values(tile) > 255) || any(terra::values(tile) < 0))) {
+      tile_values <- terra::values(tile)
+      NaN_rows <- which(apply(tile_values, 1, function(row) all(is.nan(row))))
+      tile_values[NaN_rows, 1] <- 179
+      tile_values[NaN_rows, 2] <- 184
+      tile_values[NaN_rows, 3] <- 168
+      terra::values(tile) <- tile_values
+  }
+  fftiles[[tile_i]] <- tile
+  fftile_rows[[tile_i]] <- nrow(terra::values(fftiles[[tile_i]]))
+}
+
+# Stack the rasters in the list on top of each other
+fftiles_ls <-terra::sprc(fftiles)
+merge_image <- terra::merge(fftiles_ls)
+
+# Plot the merged raster
+terra::plot(merge_image)
+
+```
+
+
+```{r - **merge tiles with all clusters**}
+######## Merge tiles
+# comb_res is a dataframe which has the tiles name and the cluster the tile belongs to
+#Get all the tiles' filename in a list 
+load("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_pca8_kmean8.RData")
+
+# Create an empty list to store the raster objects
+fftiles <- list()
+fftile_rows <- list()
+
+# Function to load raster and preprocess
+load_and_preprocess_raster <- function(tile_name) {
+  tile <- terra::rast(tile_name)
+  if (is.na(any(terra::values(tile) > 255) || any(terra::values(tile) < 0))) {
+      tile_values <- terra::values(tile)
+      NaN_rows <- which(apply(tile_values, 1, function(row) all(is.nan(row))))
+      tile_values[NaN_rows, 1] <- 179
+      tile_values[NaN_rows, 2] <- 184
+      tile_values[NaN_rows, 3] <- 168
+      terra::values(tile) <- tile_values
+  }
+  return(tile)
+}
+
+# Iterate over each kmean value and create a plot
+for (kmean_val in 1:8) {
+  # Get the corresponding tile names for the current kmean value
+  tile_names <- lapply(comb_res[comb_res$kmeans == kmean_val, 1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/', x))
+  
+  # Load each raster into the list and preprocess
+  fftiles <- lapply(tile_names, load_and_preprocess_raster)
+  
+  # Stack the rasters in the list on top of each other
+  fftiles_ls <- terra::sprc(fftiles)
+  merge_image <- terra::merge(fftiles_ls)
+  
+  # Plot the merged raster
+  plot_title <- paste("Kmeans =", kmean_val)
+  terra::plot(merge_image, main = plot_title)
+}
+
+
+```
+
+```{r merge tiles for the edge cluster}
+tile_names<- lapply(comb_res[comb_res$kmeans == 3,1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/', x))
+# Create an empty list to store the raster objects
+fftiles <- list()
+fftile_rows <- list()
+
+# Load each raster into the list
+for (tile_i in 1:length(tile_names)) {
+  tile <- terra::rast(tile_names[[tile_i]])
+  if (is.na(any(terra::values(tile) > 255) || any(terra::values(tile) < 0))) {
+      tile_values <- terra::values(tile)
+      NaN_rows <- which(apply(tile_values, 1, function(row) all(is.nan(row))))
+      tile_values[NaN_rows, 1] <- 179
+      tile_values[NaN_rows, 2] <- 184
+      tile_values[NaN_rows, 3] <- 168
+      terra::values(tile) <- tile_values
+  }
+  fftiles[[tile_i]] <- tile
+  fftile_rows[[tile_i]] <- nrow(terra::values(fftiles[[tile_i]]))
+}
+
+# Stack the rasters in the list on top of each other
+fftiles_ls <-terra::sprc(fftiles)
+merge_image <- terra::merge(fftiles_ls)
+
+# Plot the merged raster
+terra::plot(merge_image)
+
+```
+
+```{r}
+# Convert fftile_rows to a vector
+fftile_rows_vector <- unlist(fftile_rows)
+
+# Count the occurrences of each number
+counts <- table(fftile_rows_vector)
+
+# Print the counts
+print(counts)
+
+
+```
+
+
+```{r}
+#Create a dataframe with filename, rast info, nrows of each rast
+df <- data.frame(tile_names = unlist(tile_names), fftiles = I(fftiles), fftile_rows = I(fftile_rows))
+
+
+
+```
+
+
+```{r}
+
+pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x94_tiles"
+list_files = list.files(pilot_folder, pattern = 's119B_\\d+\\.tif$', full.names = T)
+
+tile_dim = list()
+
+for(img_path_i in 1:length(list_files[1:500])) {
+  #print(img_path_i)
+  img_path = list_files[[img_path_i]]
+  
+  # load simple image #by reading TIFF tile
+  tile <- rast(img_path)
+  tile_dim[[img_path]] <- dim(tile)
+}  
+  
+df <- data.frame(tile_names = unlist(list_files[1:500]), tile_dim = I(tile_dim))
+unique(df$tile_dim)
+```
+```{r}
+pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_test_tiles"
+list_files = list.files(pilot_folder, pattern = 's119B_\\d+\\.tif$', full.names = T)
+
+tile_dim = list()
+
+for(img_path_i in 1:length(list_files[1:500])) {
+  #print(img_path_i)
+  img_path = list_files[[img_path_i]]
+  
+  # load simple image #by reading TIFF tile
+  tile <- rast(img_path)
+  tile_dim[[img_path]] <- dim(tile)
+}  
+  
+df <- data.frame(tile_names = unlist(list_files[1:500]), tile_dim = I(tile_dim))
+unique(df$tile_dim)
+```
+
+
+```{r checking if all the tiles have the same dim}
+pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles"
+list_files = list.files(pilot_folder, pattern = 's119B_\\d+\\.tif$', full.names = T)
+
+tile_dim = list()
+
+for(img_path_i in 1:length(list_files[1:2000])) {
+  #print(img_path_i)
+  img_path = list_files[[img_path_i]]
+  
+  # load simple image #by reading TIFF tile
+  tile <- rast(img_path)
+  tile_dim[[img_path]] <- dim(tile)
+}  
+  
+df <- data.frame(tile_names = unlist(list_files[1:2000]), tile_dim = I(tile_dim))
+unique(df$tile_dim)
+```
+
+```{r intact tile}
+ff3754 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_3754.tif")
+terra::plot(ff3754, main = 'ff1018')
+#nrow(terra::values(ff1018))
+dim(ff3754)
+```
+```{r}
+any(terra::values(ff3754)>255) 
+any(terra::values(ff3754)<0) 
+```
+
+
+```{r - nonintact-tile}
+ff3519 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_3519.tif")
+terra::plot(ff3519, main = 'ff3519')
+#nrow(terra::values(ff1018))
+dim(ff3519)
+terra::values(ff3519)
+```
+
+
+```{r}
+#non-intact tiles
+any(terra::values(ff3519)>255) 
+any(terra::values(ff3519)<0) 
+```
+
+
+```{r}
+# patch_4_tile 100 pixel * 100 pixel
+patch_4t_100 = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_100_1.tif")
+terra::plot(patch_4t_100, main = 'patch_4t_100')
+#nrow(terra::values(ff1018))
+dim(patch_4t_100)
+terra::values(patch_4t_100)
+
+```
+
+
+```{r}
+resnet_model_shape <- keras::application_resnet50(weights = "imagenet", 
+                                                  include_top = FALSE, 
+                                                  pooling = "max", 
+                                                  input_shape = c(100, 100, 3)) 
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```

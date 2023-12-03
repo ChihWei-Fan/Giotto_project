@@ -7,12 +7,11 @@ if(!require(raster)) {
   install.packages("raster")
 }
 
-library(keras)
 library(ggplot2)
 library(data.table)
 library(terra)
-library(rgdal)
 library(tensorflow)
+library(keras)
 library(reticulate)
 
 #Modify the time for Save.image() to save the all things in workspace
@@ -85,11 +84,12 @@ dim(image_mat) #Check how many tiles are not empty
 
 # run simple PCA on image feature matrix
 s119B_pca <- prcomp(image_mat, center = T, scale. = T)
-pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_pca_barplot.pdf") 
+pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_89x103_tiles/entireHnE_resnet_feats_pca_barplot.pdf") 
 plot(s119B_pca)
 dev.off()
 
-#save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_afterPCA.RData")
+#Save the result after PCA
+save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_89x103_tiles/entireHnE_resnet_feats_afterPCA.RData")
 
 
 

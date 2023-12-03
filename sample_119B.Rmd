@@ -163,6 +163,7 @@ spatDimPlot(gobject = visium_sample_119B, cell_color = 'nr_feats', color_as_fact
 spatPlot2D(visium_sample_119B, cell_color = 'leiden_clus', show_image = T, save_plot = F,
            coord_fix_ratio = 1, point_size = 2, axis_text = 12, axis_title = 12)
 ```
+
 # Spatial Gene expression on features for specific genes
 ```{r}
 #Shared genes related to adipose tissue
@@ -171,6 +172,32 @@ spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
                cow_n_col = 2, point_size = 1.5)
 ```
 
+```{r}
+#Brest cancer-maker genes
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("ESR1","ERBB2","MKI67"),
+               cow_n_col = 2, point_size = 1.5)
+```
+```{r}
+#Brest cancer-related microenvironment maker genes -1
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("SPARC","IFI27","COL10A1","COL1A2","COL3A1","COL5A2","FN1","POSTN"),
+               cow_n_col = 3, point_size = 1.5)
+```
+
+```{r}
+#Brest cancer-related microenvironment maker genes -2
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("CTHRC1","COL1A1","THBS2","PDGFRL","COL8A1","SULF1","MMP14"),
+               cow_n_col = 3, point_size = 1.5)
+```
+
+```{r}
+#Brest cancer-related microenvironment maker genes -3
+spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
+               feats = c("ISG15","IL32","MXRA5","LUM","DPYSL3","CTSK"),
+               cow_n_col = 3, point_size = 1.5)
+```
 
 ```{r}
 #WAT

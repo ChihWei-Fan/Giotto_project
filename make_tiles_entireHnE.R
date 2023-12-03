@@ -11,7 +11,6 @@ library(keras)
 library(ggplot2)
 library(data.table)
 library(terra)
-library(rgdal)
 library(tensorflow)
 library(reticulate)
 
@@ -46,6 +45,7 @@ he_image_masked_crop
 sub <- terra::rast(ncols=89, nrows=103, xmin = 6800, xmax = 15700, ymin = 5700, ymax = 16000)
 values(sub) <- 1:ncell(sub) # add values for visualization purpose
 plot(sub)
+
 
 
 # tile he_image_masked_crop by created raster image (sub)
