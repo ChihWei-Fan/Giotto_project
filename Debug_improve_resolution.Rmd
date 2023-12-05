@@ -64,55 +64,6 @@ for (kmean_val in 1:4) {
 
 
 
-#Since there are more features than the observations, using PC would not be reliable, instead we would use original features we get from the resnet model to train the model we build
-```{r}
-#the matrix that combine all features of the rows (tiles) -- res_dfr 
-
-# Convert results to matrix (image x features)
-tile_names <- data.frame(tile_name = res_dfr[,1])
-image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) %>% as.data.frame()
-dim(image_mat) #Check how many tiles are not empty
-
-# modify the column names avoid using number as column names
-colnames(image_mat) <- paste0("f", seq_along(image_mat))
-
-#do we have to scale or normalized the features???
-#scal_image_mat <-scale(image_mat, center = T, scale = T) #sclaed by col
-#scal_image_mat <-t(scale(t(image_mat), center = TRUE, scale = TRUE)) #scaled by row
-
-#Combine the features with the corresponding tile name 
-features_matrix <-cbind(tile_names, image_mat)
-                                             
-
-#features_matrix$tile_name <- gsub("/s119B_", "s119B_", features_matrix$tile_name)
-input_mat <-data.frame()
-input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:12], by = c("tile_name" = "tile_ID"))
-input_mat[,1]<- sapply(input_mat$tile_name,basename) #input_mat include tile_name, 2040 features, SPARC, and MMP7 expression
-
-#Don't need to do this every time (unless you made some changes in input_mat)
-saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
-
-```
-
-
-
-#split the dataset 
-```{r}
-#load the imput_mat from RDS file
-input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS")
-
-set.seed(123)
-split = sample.split(input_mat[,1], SplitRatio = 0.8)
-training_set = subset(input_mat, split == TRUE)
-test_set = subset(input_mat, split == FALSE)
-#sampling_index <- createDataPartition(input_mat[,1], times = 1, p = 0.8, list = FALSE) 
-#training_set  <- input_mat[sampling_index, ]
-#test_set <-  input_mat[-sampling_index, ]
-
-
-```
-
-
 #Modeling
 ```{r}
 #Model 1: LASSO model
@@ -155,6 +106,8 @@ cor(test_set$SPARC, SPARC_preds)
 
 ```
 
+
+
 #Model 1: #LASSO or elasticnet (glmnet) not using lm because linear regression model need more observations than variables(features) so the PC could be more reliable. -- use original features
 ```{r}
 #Model 1 -- LASSO (another method)
@@ -167,64 +120,242 @@ control <- trainControl(method="cv",
 
 #data preprocessing can also be done in train() function
 SPARC_glmnet <- caret::train(SPARC~.,                      
-                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]                
+                     data = training_set[,c(2:2049,2050)],                    
                      method = "glmnet",                      
                      metric = "RMSE",                      
                      trControl = control) 
 
 # Make predictions on the test set
-SPARC_preds <- predict(SPARC_glmnet, newdata = test_set[,-c(1, 2050, 2051)], type = "raw")
+SPARC_preds <- predict(SPARC_glmnet, newdata = test_set[,c(2:2049)], type = "raw")
 
 #Generate confusion matrix
-cm_SPARC = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_preds, tile_name = test_set[,1])
+cm_SPARC_lso = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_preds, tile_name = test_set[,1])
 
 # Combine the original expression value and predict values with tile coordinates
-cm_SPARC <- merge(tile_plot_df[match(cm_SPARC$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC, by = "tile_name")
+cm_SPARC_lso <- merge(tile_plot_df[match(cm_SPARC_lso$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_lso, by = "tile_name")
 
 
-mse =  mean((test_set$SPARC - SPARC_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_preds)
-rmse = RMSE(test_set$SPARC, SPARC_preds)
-r2 = R2(test_set$SPARC, SPARC_preds, form = "corr")
+mse =  mean((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred))
+rmse = sum((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2)/sum((cm_SPARC_lso$SPARC - mean(cm_SPARC_lso$SPARC))^2)
+Pearson = cor(cm_SPARC_lso$SPARC, cm_SPARC_lso$SPARC_pred, method = "pearson")
+r2 = R2(cm_SPARC_lso$SPARC, cm_SPARC_lso$SPARC_pred, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2, "\n", "Pearson:", Pearson)
+
+
+#Plot predicted expression
+ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+#Plot observed expression
+ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
+head(cm_SPARC_lso)
+
+ggscatter(cm_SPARC_lso, x = "SPARC", y = "SPARC_pred", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          add.params = list(color = "blue", fill = "lightgray"),
+          xlab = "Observed SPARC Expression", ylab = "Predicted SPARC Expression",
+          size = 1.5, cor.coef.size = 5)
+
+```
+
+
+
+#Model 1 -- LASSO for SPARC (with COL1A1 & LUM)
+```{r}
+#data preprocessing can also be done in train() function
+SPARC_glmnet <- caret::train(SPARC~.,                      
+                     data = training_set[,c(2:2049,2050:2060)],                    
+                     method = "glmnet",                      
+                     metric = "RMSE",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+SPARC_preds <- predict(SPARC_glmnet, newdata = test_set[,c(2:2049,2051:2060)], type = "raw")
+
+#Generate confusion matrix
+cm_SPARC_lso = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_SPARC_lso <- merge(tile_plot_df[match(cm_SPARC_lso$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_lso, by = "tile_name")
+
+
+mse =  mean((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred))
+rmse = sum((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2)/sum((cm_SPARC_lso$SPARC - mean(cm_SPARC_lso$SPARC))^2)
+r2 = R2(cm_SPARC_lso$SPARC, cm_SPARC_lso$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
 
+
+#Plot predicted expression
+ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+#Plot observed expression
+ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
+head(cm_SPARC_lso)
+
 ```
-# Model 1 --LASSO for COL5A2
+
+
+
+
+
+# Model 1 --LASSO for COL1A1
 ```{r}
 #Model 1 -- LASSO (another method)
 
 #data preprocessing can also be done in train() function
-SPARC_glmnet <- caret::train(SPARC~.,                      
-                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]                
+COL1A1_glmnet <- caret::train(COL1A1~.,                      
+                     data = training_set[,c(2:2049,2051)],                
                      method = "glmnet",                      
                      metric = "RMSE",                      
                      trControl = control) 
 
 # Make predictions on the test set
-SPARC_preds <- predict(SPARC_glmnet, newdata = test_set[,-c(1, 2050, 2051)], type = "raw")
+COL1A1_preds <- predict(COL1A1_glmnet, newdata = test_set[,c(2:2049)], type = "raw")
 
 #Generate confusion matrix
-cm_SPARC = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_preds, tile_name = test_set[,1])
+cm_COL1A1_lso = data.frame( COL1A1 = test_set["COL1A1"], COL1A1_pred = COL1A1_preds, tile_name = test_set[,1])
 
 # Combine the original expression value and predict values with tile coordinates
-cm_SPARC <- merge(tile_plot_df[match(cm_SPARC$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC, by = "tile_name")
+cm_COL1A1_lso <- merge(tile_plot_df[match(cm_COL1A1_lso$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_COL1A1_lso, by = "tile_name")
 
 
-mse =  mean((test_set$SPARC - SPARC_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_preds)
-rmse = RMSE(test_set$SPARC, SPARC_preds)
-r2 = R2(test_set$SPARC, SPARC_preds, form = "corr")
+mse =  mean((cm_COL1A1_lso$COL1A1 - cm_COL1A1_lso$COL1A1_pred)^2) 
+mae = mean(abs(cm_COL1A1_lso$COL1A1 - cm_COL1A1_lso$COL1A1_pred))
+rmse = sum((cm_COL1A1_lso$COL1A1 - cm_COL1A1_lso$COL1A1_pred)^2)/sum((cm_COL1A1_lso$COL1A1 - mean(cm_COL1A1_lso$COL1A1))^2)
+r2 = R2(cm_COL1A1_lso$COL1A1, cm_COL1A1_lso$COL1A1_pred, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Plot predicted expression
+ggplot(cm_COL1A1_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = COL1A1_preds)) +
+  scale_colour_gradient2()
+
+#Plot observed expression
+ggplot(cm_COL1A1_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = COL1A1)) +
+  scale_colour_gradient2()
+head(cm_COL1A1_lso)
+
+```
+# Model 1 --LASSO for COL1A1 (with SPARC & LUM)
+```{r}
+#Model 1 -- LASSO (another method)
+
+#data preprocessing can also be done in train() function
+COL1A1_glmnet <- caret::train(COL1A1~.,                      
+                     data = training_set[,c(2:2049,2050:2052)],                
+                     method = "glmnet",                      
+                     metric = "RMSE",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+COL1A1_preds <- predict(COL1A1_glmnet, newdata = test_set[,c(2:2049,2050,2052)], type = "raw")
+
+#Generate confusion matrix
+cm_COL1A1_lso = data.frame( COL1A1 = test_set["COL1A1"], COL1A1_pred = COL1A1_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_COL1A1_lso <- merge(tile_plot_df[match(cm_COL1A1_lso$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_COL1A1_lso, by = "tile_name")
+
+
+mse =  mean((cm_COL1A1_lso$COL1A1 - cm_COL1A1_lso$COL1A1_pred)^2) 
+mae = mean(abs(cm_COL1A1_lso$COL1A1 - cm_COL1A1_lso$COL1A1_pred))
+rmse = sum((cm_COL1A1_lso$COL1A1 - cm_COL1A1_lso$COL1A1_pred)^2)/sum((cm_COL1A1_lso$COL1A1 - mean(cm_COL1A1_lso$COL1A1))^2)
+r2 = R2(cm_COL1A1_lso$COL1A1, cm_COL1A1_lso$COL1A1_pred, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Plot predicted expression
+ggplot(cm_COL1A1_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = COL1A1_preds)) +
+  scale_colour_gradient2()
+
+#Plot observed expression
+ggplot(cm_COL1A1_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = COL1A1)) +
+  scale_colour_gradient2()
+head(cm_COL1A1_lso)
+
+```
+
+# Model 1 --LASSO for LUM
+```{r}
+#Model 1 -- LASSO (another method)
+
+#data preprocessing can also be done in train() function
+LUM_glmnet <- caret::train(LUM~.,                      
+                     data = training_set[,c(2:2049,2052)],           
+                     method = "glmnet",                      
+                     metric = "RMSE",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+LUM_preds <- predict(LUM_glmnet, newdata = test_set[,c(2:2049)], type = "raw")
+
+#Generate confusion matrix
+cm_LUM = data.frame( LUM = test_set["LUM"], LUM_pred = LUM_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_LUM <- merge(tile_plot_df[match(cm_LUM$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_LUM, by = "tile_name")
+
+
+mse =  mean((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred))
+rmse = sum((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2)/sum((cm_SPARC_lso$SPARC - mean(cm_SPARC_lso$SPARC))^2)
+r2 = R2(cm_SPARC_lso$SPARC, cm_SPARC_lso$SPARC_pred, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+```
+# Model 1 --LASSO for LUM (with SPARC and COL1A1)
+```{r}
+#Model 1 -- LASSO (another method)
+
+#data preprocessing can also be done in train() function
+LUM_glmnet <- caret::train(LUM~.,                      
+                     data = training_set[,c(2:2049,2050:2052)],           
+                     method = "glmnet",                      
+                     metric = "RMSE",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+LUM_preds <- predict(LUM_glmnet, newdata = test_set[,c(2:2049, 2050, 2051)], type = "raw")
+
+#Generate confusion matrix
+cm_LUM = data.frame( LUM = test_set["LUM"], LUM_pred = LUM_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_LUM <- merge(tile_plot_df[match(cm_LUM$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_LUM, by = "tile_name")
+
+
+mse =  mean((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred))
+rmse = sum((cm_SPARC_lso$SPARC - cm_SPARC_lso$SPARC_pred)^2)/sum((cm_SPARC_lso$SPARC - mean(cm_SPARC_lso$SPARC))^2)
+r2 = R2(cm_SPARC_lso$SPARC, cm_SPARC_lso$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
 
 ```
 
+
 #Prepare df for ploting prediciton result
 ```{r}
 #Prepare df for ploting
-traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c(9,13,14)], by = "tile_name")
-testing_testdf <- merge(test_set, tile_plot_df[tile_plot_df$tile_name %in% test_set$tile_name, c(9,13,14)], by = "tile_name")
+traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")
+testing_testdf <- merge(test_set, tile_plot_df[tile_plot_df$tile_name %in% test_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")
 train_n_test_testdf <- rbind(traing_testdf, testing_testdf)
 
 ```
@@ -232,32 +363,41 @@ train_n_test_testdf <- rbind(traing_testdf, testing_testdf)
 #Plotting results
 ```{r}
 #Plot predict expression
-ggplot(cm_SPARC, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC_preds)) +
-  scale_colour_gradient2()
+ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_pred)) +
+    scale_colour_gradient2(low = "blue", high = "red" )
 
-#Polt visium gene expression (test set)
-ggplot(cm_SPARC, aes(x=x_cor, y=y_cor)) +
+#Plot visium gene expression (test set)
+ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
   geom_point(aes(colour = SPARC)) +
-  scale_colour_gradient2() #low = "blue", high = "red"
+    scale_colour_gradient2(low = "blue", high = "red" )
 
 #Plot visium gene expression (training set)
 ggplot(traing_testdf, aes(x=x_cor, y=y_cor)) +
   geom_point(aes(colour = SPARC)) +
-  scale_colour_gradient2()
+    scale_colour_gradient2(low = "blue", high = "red" )
 
 #Plot visium gene expression (entire dataset)
 ggplot(train_n_test_testdf, aes(x=x_cor, y=y_cor)) +
   geom_point(aes(colour = SPARC)) +
-  scale_colour_gradient2()
+    scale_colour_gradient2(low = "blue", high = "red" )
 
-#check the distribution of varible with the histogram-- check if is's scaled
+###Check the correctness of the ploting result (training set + testing set)
+combined_data <- rbind(data.frame(x_cor = cm_SPARC_lso$x_cor, y_cor = cm_SPARC_lso$y_cor, SPARC = cm_SPARC_lso$SPARC, dataset = "Lasso"),
+                       data.frame(x_cor = traing_testdf$x_cor, y_cor = traing_testdf$y_cor, SPARC = traing_testdf$SPARC, dataset = "Training Set"))
+
+# Plot combined data
+ggplot(combined_data, aes(x = x_cor, y = y_cor, color = SPARC, shape = dataset)) +
+  geom_point() +
+  scale_colour_gradient2(low = "blue", high = "red" ) #scale_colour_gradient2(low = scales::muted("blue"), high = scales::muted("red") )
+
+#check the distribution of variable with the histogram-- check if is's scaled
 ```
 
 #Model 2: Random Forest model 
 ```{r}
 SPARC_rf <- caret::train(SPARC~.,                      
-                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]                
+                     data = training_set[,c(2:2049,2050)],    #training_set[,-c(1,2007)]                
                      method = "rf",                      
                      metric = "RMSE",                      
                      trControl = control) 
@@ -266,94 +406,112 @@ SPARC_rf <- caret::train(SPARC~.,
 #SPARC_rf <- randomForest(SPARC ~ ., data = training_set[, -c(1, 2051)], importance = TRUE)
 
 # Make predictions on the test set
-SPARC_rf_preds <- predict(SPARC_rf, newdata = test_set[,-c(1, 2050, 2051)], type = "raw")
+SPARC_rf_preds <- predict(SPARC_rf, newdata = test_set[,c(2:2049)], type = "raw")
 
 #Generate confusion matrix
-cm_SPARC_rf = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_rf_preds, tile_name = test_set[,1])
+cm_SPARC_rf = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_rf_preds, tile_name = test_set[,1])
 
 # Combine the original expression value and predict values with tile coordinates
-cm_SPARC_rf <- merge(tile_plot_df[match(cm_SPARC_rf$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC_rf, by = "tile_name")
+cm_SPARC_rf <- merge(tile_plot_df[match(cm_SPARC_rf$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_rf, by = "tile_name")
 
-mse =  mean((test_set$SPARC - SPARC_rf_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_rf_preds)
-rmse = RMSE(test_set$SPARC, SPARC_rf_preds)
-r2 = R2(test_set$SPARC, SPARC_rf_preds, form = "corr") #change the R-square function
+mse =  mean((cm_SPARC_rf$SPARC - cm_SPARC_rf$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_rf$SPARC - cm_SPARC_rf$SPARC_pred))
+rmse = sum((cm_SPARC_rf$SPARC - cm_SPARC_rf$SPARC_pred)^2)/sum((cm_SPARC_rf$SPARC - mean(cm_SPARC_rf$SPARC))^2)
+r2 = R2(cm_SPARC_rf$SPARC, cm_SPARC_rf$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
 
-#Polt predict expression
+#Plot predicted expression
 ggplot(cm_SPARC_rf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC_rf_preds)) +
+  geom_point(aes(colour = SPARC_preds)) +
   scale_colour_gradient2()
+
+#Plot observed expression
+ggplot(cm_SPARC_rf, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
+head(cm_SPARC_nn)
 
 
 ```
-#Model 2 :Stacked AutoEncoder Deep Neutral Network (dnn) #all the predict values are the same
+#Model 2: Random Forest model (with COL1A1 and LUM)
 ```{r}
-library(deepnet)
-# Assuming 'training_set' and 'test_set' are your data
-
 SPARC_rf <- caret::train(SPARC~.,                      
-                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]  
-                     method = "dnn",                      
+                     data = training_set[,c(2:2049,2050:2052)],    #training_set[,-c(1,2007)]                
+                     method = "rf",                      
                      metric = "RMSE",                      
                      trControl = control) 
 
+#the independent observation is violated (the data is correlated)
+#SPARC_rf <- randomForest(SPARC ~ ., data = training_set[, -c(1, 2051)], importance = TRUE)
+
 # Make predictions on the test set
-SPARC_dnn_preds <- predict(SPARC_rf, newdata = test_set[,-c(1, 2050, 2051)], type = "raw")
+SPARC_rf_preds <- predict(SPARC_rf, newdata = test_set[,c(2:2049, 2051, 2052)], type = "raw")
 
 #Generate confusion matrix
-cm_SPARC_dnn = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_dnn_preds, tile_name = test_set[,1])
+cm_SPARC_rf = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_rf_preds, tile_name = test_set[,1])
 
 # Combine the original expression value and predict values with tile coordinates
-cm_SPARC_dnn <- merge(tile_plot_df[match(cm_SPARC_dnn$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC_dnn, by = "tile_name")
+cm_SPARC_rf <- merge(tile_plot_df[match(cm_SPARC_rf$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_rf, by = "tile_name")
 
-mse =  mean((test_set$SPARC - SPARC_dnn_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_dnn_preds)
-rmse = RMSE(test_set$SPARC, SPARC_dnn_preds)
-r2 = R2(test_set$SPARC, SPARC_dnn_preds, form = "corr") #change the R-square function
+mse =  mean((cm_SPARC_rf$SPARC - cm_SPARC_rf$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_rf$SPARC - cm_SPARC_rf$SPARC_pred))
+rmse = sum((cm_SPARC_rf$SPARC - cm_SPARC_rf$SPARC_pred)^2)/sum((cm_SPARC_rf$SPARC - mean(cm_SPARC_rf$SPARC))^2)
+r2 = R2(cm_SPARC_rf$SPARC, cm_SPARC_rf$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
 
-#Polt predict expression
-ggplot(cm_SPARC_dnn, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC_dnn_preds)) +
+#Plot predicted expression
+ggplot(cm_SPARC_rf, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_preds)) +
   scale_colour_gradient2()
 
+#Plot observed expression
+ggplot(cm_SPARC_rf, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
+head(cm_SPARC_rf)
 
 
 ```
-
-
-
 #Model 2 : Neutral Network (neuralnet)
 ```{r}
 library(neuralnet)
 
 SPARC_nn <- caret::train(
   SPARC ~ .,
-  data = training_set[,-c(1,2051)],
+  data = training_set[,c(2:2049,2050)],
   method = "neuralnet",
   metric = "RMSE",
   trControl = control
 )
 
-SPARC_nn_preds <-predict(SPARC_nn, newdata = test_set[,-c(2050)])
+SPARC_nn_preds <-predict(SPARC_nn, newdata = test_set[,c(2:2049)])
 
 #Generate confusion matrix
-cm_SPARC_nn = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_nn_preds, tile_name = test_set[,1])
+cm_SPARC_nn = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_nn_preds, tile_name = test_set[,1])
 
 #Generate confusion matrix
-cm_SPARC_nn = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_nn_preds, tile_name = test_set[,1])
+cm_SPARC_nn = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_nn_preds, tile_name = test_set[,1])
 
-cm_SPARC_nn <- merge(tile_plot_df[match(cm_SPARC_nn$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC_nn, by = "tile_name")
+cm_SPARC_nn <- merge(tile_plot_df[match(cm_SPARC_nn$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_nn, by = "tile_name")
 
-mse =  mean((test_set$SPARC - SPARC_nn_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_nn_preds)
-rmse = RMSE(test_set$SPARC, SPARC_nn_preds)
-r2 = R2(test_set$SPARC, SPARC_nn_preds, form = "corr")
+mse =  mean((cm_SPARC_nn$SPARC - cm_SPARC_nn$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_nn$SPARC - cm_SPARC_nn$SPARC_pred))
+rmse = sum((cm_SPARC_nn$SPARC - cm_SPARC_nn$SPARC_pred)^2)/sum((cm_SPARC_nn$SPARC - mean(cm_SPARC_nn$SPARC))^2)
+r2 = R2(cm_SPARC_nn$SPARC, cm_SPARC_nn$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Plot predicted expression
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+#Plot observed expression
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
 head(cm_SPARC_nn)
 ```
 
@@ -363,66 +521,153 @@ head(cm_SPARC_nn)
 ```{r}
 library(gbm) 
 SPARC_gbm <- caret::train(SPARC~.,                      
-                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]                
+                     data = training_set[,c(2:2049,2050)],    #training_set[,-c(1,2007)]                
                      method = "gbm",                      
                      metric = "RSME",                      
                      trControl = control) 
 
 # Make predictions on the test set
-SPARC_gbm_preds <- predict(SPARC_gbm, newdata = test_set[,-c(1, 2050, 2051)], type = "raw")
+SPARC_gbm_preds <- predict(SPARC_gbm, newdata = test_set[,c(2:2049)], type = "raw")
 
 
 #Generate confusion matrix
-cm_SPARC_gbm = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_gbm_preds, tile_name = test_set[,1])
+cm_SPARC_gbm = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_gbm_preds, tile_name = test_set[,1])
 
 # Combine the original expression value and predict values with tile coordinates
-cm_SPARC_gbm <- merge(tile_plot_df[match(cm_SPARC_gbm$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC_gbm, by = "tile_name")
+cm_SPARC_gbm <- merge(tile_plot_df[match(cm_SPARC_gbm$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_gbm, by = "tile_name")
 
-mse =  mean((test_set$SPARC - SPARC_gbm_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_gbm_preds)
-rmse = RMSE(test_set$SPARC, SPARC_gbm_preds)
-r2 = R2(test_set$SPARC, SPARC_gbm_preds, form = "corr")
+mse =  mean((cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred))
+rmse = sum((cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred)^2)/sum((cm_SPARC_gbm$SPARC - mean(cm_SPARC_gbm$SPARC))^2)
+r2 = R2(cm_SPARC_gbm$SPARC, cm_SPARC_gbm$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
 
 #Polt predict expression
 ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC_gbm_preds)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
   scale_colour_gradient2()
 ```
+```{r}
+ggscatter(cm_SPARC_gbm, x = "SPARC", y = "SPARC_pred", 
+          add = "reg.line", conf.int = TRUE, 
+          cor.coef = TRUE, cor.method = "pearson",
+          xlab = "Observed SPARC Expression", ylab = "Predicted SPARC Expression")
+```
+
+
+#Model 3: Random Forest GBM model (with COL1A1 and LUM)
+```{r}
+library(gbm) 
+SPARC_gbm <- caret::train(SPARC~.,                      
+                     data = training_set[,c(2:2049,2050:2060)],    #training_set[,-c(1,2007)]                
+                     method = "gbm",                      
+                     metric = "RSME",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+SPARC_gbm_preds <- predict(SPARC_gbm, newdata = test_set[,c(2:2049, 2051:2060)], type = "raw")
+
+
+#Generate confusion matrix
+cm_SPARC_gbm = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_gbm_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_SPARC_gbm <- merge(tile_plot_df[match(cm_SPARC_gbm$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_gbm, by = "tile_name")
+
+mse =  mean((cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred))
+rmse = sum((cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred)^2)/sum((cm_SPARC_gbm$SPARC - mean(cm_SPARC_gbm$SPARC))^2)
+r2 = R2(cm_SPARC_gbm$SPARC, cm_SPARC_gbm$SPARC_pred, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Polt predict expression
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
+```
+
+
+```{r}
+SPARC_gbm <- caret::train(SPARC~.,                      
+                     data = training_set[,c(2050:2052)],    #training_set[,-c(1,2007)]                
+                     method = "gbm",                      
+                     metric = "RSME",                      
+                     trControl = control) 
+
+# Make predictions on the test set
+SPARC_gbm_preds <- predict(SPARC_gbm, newdata = test_set[,c(2051, 2052)], type = "raw")
+
+
+#Generate confusion matrix
+cm_SPARC_gbm = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_gbm_preds, tile_name = test_set[,1])
+
+# Combine the original expression value and predict values with tile coordinates
+cm_SPARC_gbm <- merge(tile_plot_df[match(cm_SPARC_gbm$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_gbm, by = "tile_name")
+
+mse =  mean((cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred)^2) 
+mae = mean(abs(cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred))
+rmse = sum((cm_SPARC_gbm$SPARC - cm_SPARC_gbm$SPARC_pred)^2)/sum((cm_SPARC_gbm$SPARC - mean(cm_SPARC_gbm$SPARC))^2)
+r2 = R2(cm_SPARC_gbm$SPARC, cm_SPARC_gbm$SPARC_pred, form = "corr")
+cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
+    "RMSE:", rmse, "\n", "R-squared:", r2)
+
+#Polt predict expression
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+ggplot(cm_SPARC_gbm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
+  scale_colour_gradient2()
+```
+
+
 
 
 #Model4:  SVM
 ```{r}
 #Use the SVM model 
 SPARC_svm <- caret::train(SPARC~.,                      
-                     data = training_set[,-c(1,2051)],    #training_set[,-c(1,2007)]
+                     data = training_set[,c(2:2049,2050)],    #training_set[,-c(1,2007)]
                      method = "svmPoly",                      
                      metric = "RMSE",                      
                      trControl = control) 
 
 # Predicting the Test set results (without giving it real expression value)
 #APOE_pred = predict(svm_mod_APOE , newdata = test_set[,-c(1,10,11)])
-SPARC_svm_preds = predict(SPARC_svm , newdata = test_set[,-c(1,2050, 2051)])
+SPARC_svm_preds = predict(SPARC_svm , newdata = test_set[,c(2:2049)])
 
 #Generate confusion matrix
-cm_SPARC_svm = data.frame( SPARC = test_set[2050], SPARC_pred = SPARC_svm_preds, tile_name = test_set[,1]) #APOE = test_set[10]
+cm_SPARC_svm = data.frame( SPARC = test_set["SPARC"], SPARC_pred = SPARC_svm_preds, tile_name = test_set[,1]) #APOE = test_set[10]
 
 
 # Combine the original expression value and predict values with tile coordinates
-cm_SPARC_svm <- merge(tile_plot_df[match(cm_SPARC_svm$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_SPARC_svm, by = "tile_name")
+cm_SPARC_svm <- merge(tile_plot_df[match(cm_SPARC_svm$tile_name, tile_plot_df$tile_name),c("cell_ID","tile_name","x_cor","y_cor")], cm_SPARC_svm, by = "tile_name")
 
 
-mse =  mean((test_set$SPARC - SPARC_svm_preds)^2) 
-mae = MAE(test_set$SPARC, SPARC_svm_preds)
-rmse = RMSE(test_set$SPARC, SPARC_svm_preds)
-r2 = R2(test_set$SPARC, SPARC_svm_preds, form = "corr")
+mse =  mean((cm_SPARC_svm$SPARC - cm_SPARC_svm$SPARC_pred))
+rmse = sum((cm_SPARC_svm$SPARC - cm_SPARC_svm$SPARC_pred)^2)/sum((cm_SPARC_svm$SPARC - mean(cm_SPARC_svm$SPARC))^2)
+r2 = R2(cm_SPARC_svm$SPARC, cm_SPARC_svm$SPARC_pred, form = "corr")
 cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
     "RMSE:", rmse, "\n", "R-squared:", r2)
 
 #Polt predict expression
 ggplot(cm_SPARC_svm, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC_svm_preds)) +
+  geom_point(aes(colour = SPARC_preds)) +
+  scale_colour_gradient2()
+
+ggplot(cm_SPARC_svm, aes(x=x_cor, y=y_cor)) +
+  geom_point(aes(colour = SPARC)) +
   scale_colour_gradient2()
 ```
 #Using the following code to debug 

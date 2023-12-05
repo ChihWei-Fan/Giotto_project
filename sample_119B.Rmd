@@ -188,7 +188,7 @@ spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
 ```{r}
 #Brest cancer-related microenvironment maker genes -2
 spatFeatPlot2D(visium_sample_119B, expression_values = "scaled",
-               feats = c("CTHRC1","COL1A1","THBS2","PDGFRL","COL8A1","SULF1","MMP14"),
+               feats = c("SPARC","CTHRC1","COL1A1","THBS2","PDGFRL","COL8A1","SULF1","MMP14"),
                cow_n_col = 3, point_size = 1.5)
 ```
 

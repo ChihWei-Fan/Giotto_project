@@ -2,7 +2,6 @@
 if(!require(keras)) {
   install.packages("keras")
 }
-
 library(tidyverse)
 library(keras)
 library(ggplot2)
@@ -18,6 +17,8 @@ library(caret)
 library(randomForest)
 library(glmnet)
 library(gbm) 
+library(scales)
+library(ggpubr)
 
 #select the conda environment 
 reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_keras/bin/python")
@@ -53,8 +54,9 @@ cell_coords <- cell_coords %>%
   )
 
 # Train the resnet model in patch_run_resnet_model.R
-#Get the PCA result of patch tiles # have "res_dfr", "tile_names", "s119B_patch_tiles_pca" variable in it
 load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_afterPCA.RData") 
+#Have "res_dfr", "tile_names", "s119B_patch_tiles_pca" variable in it
+#res_dfr -- contain all the features from each spot-covered tiles before performing PCA
 
 
 #Get the patch number with corresponding extent #cells_order
@@ -76,18 +78,18 @@ list_files = res_dfr[,1]
 #Concat cell ID,  path number, and tilename in a tibble
 #patch_info <- data.frame(cell_ID = cell_coords$cell_ID, patch_num = c(1:501))
 tile_name <- data.frame( tile_name = sapply(list_files,basename), patch_number = as.numeric(gsub("s119B_(\\d+)_\\d+\\.tif", "\\1", sapply(list_files,basename))))
+patch_tile_info <- data.frame()
 patch_tile_info <- dplyr::right_join(patches_info, tile_name, by = c("patch_number" = "patch_number"), multiple = "all")
 
 
 #Get normalized visium gene expression of all genes
-norm_expr_mt <-Giotto::getExpression(visium_sample_119B, values = "scaled",spat_unit = "cell", feat_type = "rna", output = "matrix")%>% 
+scaled_expr_mt <-Giotto::getExpression(visium_sample_119B, values = "scaled",spat_unit = "cell", feat_type = "rna", output = "matrix")%>% 
   as.matrix()
 
 
-#Get the expression values of specific spatial genes   #"APOE","APOC1","TYROBP","C1QB","C1QA","IFI27","C1QC","CD74","TREM2","CD52","MMP7"
-#spatial_genes <- t(norm_expr_mt[c("APOE","MMP7"), , drop = FALSE]) %>% 
-  #as.data.frame()
-spatial_genes <- t(norm_expr_mt[c("SPARC","MKI67"), , drop = FALSE]) %>% 
+#Get the expression values of specific spatial genes (Breast cancer related marker genes)
+spatial_genes <-data.frame()
+spatial_genes <- t(scaled_expr_mt[c("SPARC","SFRP2","COL3A1","COL1A1","LUM","SULF1","COL1A2","VCAN","IGFBP7","COL18A1","THY1"), , drop = FALSE]) %>% 
   as.data.frame()
 spatial_genes <-  mutate(spatial_genes, cell_ID = rownames(spatial_genes))
 patch_tile_info <- dplyr::inner_join(patch_tile_info, spatial_genes, by = c("cell_ID" = "cell_ID"))
@@ -104,256 +106,70 @@ rownames(tiles_df)<- NULL
 
 
 #Combine all the tile-related info together
+tile_plot_df <- data.frame()
 tile_plot_df <- dplyr::inner_join(patch_tile_info, tiles_df, by = c("tile_name" = "tile_name"))
 
-####################################################################################################
-# run simple PCA on image feature matrix #image_mat was also scaled in this step 
-# This step already been done in patch_run_resnet_model.R
 
-#Get the all pca values for each patch tiles
-pca_matrix <- s119B_patch_tiles_pca$x 
-pca_matrix <-cbind(tile_names, pca_matrix)
+# Use original features from Resnet50 model would be reliable than using PCs
+# Convert results to matrix (image x features)
+tile_names <- data.frame(tile_name = res_dfr[,1])
+image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) %>% as.data.frame()
+dim(image_mat) #Check how many tiles are not empty
 
-#Plot PCA result from extracting feartures
-explained_variance <- data.frame(PC= paste0("PC",1:2004), #used be 968
-                                 var_explained= s119B_patch_tiles_pca$sdev^2/sum((s119B_patch_tiles_pca$sdev)^2))
+# modify the column names avoid using number as column names
+colnames(image_mat) <- paste0("f", seq_along(image_mat))
 
-explained_variance$PC <- factor(explained_variance$PC, levels = paste0("PC", 1:2004))
+#scale the features
+#scal_image_mat <- scale(image_mat, center = T, scale = T) #scaled by col
 
-scree_plot_pc30 <-ggplot(explained_variance[1:500,], 
-                         aes(x=PC,
-                             y=var_explained, 
-                             group=1))+
-                  geom_point()+
-                  geom_line()+
-                  labs(title="Scree plot")+
-                  theme(axis.text.x = element_text(size = 6))
-scree_plot_pc30
-
-# Decide how many PCs you want to filter out from the morphology features
-# Using PC1-PC8 #Now use all the PCs
-subset_pca_matrix <- pca_matrix[,1:500]
-
-#subset_pca_matrix$tile_name <- gsub("/s119B_", "s119B_", subset_pca_matrix$tile_name)
-input_mat <-data.frame()
-input_mat <- dplyr::inner_join(subset_pca_matrix, tile_plot_df[,10:12], by = c("tile_name" = "tile_ID"))
-#input_mat <- dplyr::inner_join(pca_matrix, tile_plot_df[,10:12], by = c("tile_name" = "tile_ID"))
-input_mat[,1]<- sapply(input_mat$tile_name,basename)
-###################################################################################################################################################################################################################################################################
-#Instead of using PCs, this time we use original features from Resnet50 model
+#Combine the features with the corresponding tile name 
+features_matrix <-cbind(tile_names, image_mat)
+#scal_features_matrix <-cbind(tile_names, scal_image_mat)
 
 
+#features_matrix$tile_name <- gsub("/s119B_", "s119B_", features_matrix$tile_name)
+input_mat <- data.frame()
+input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:21], by = c("tile_name" = "tile_ID")) #select target gene and tile_ID columns
+input_mat[,1] <- sapply(input_mat$tile_name, basename) #input_mat include tile_name, original 2048 features, and target genes' expression
+
+#scal_input_mat <- data.frame()
+#scal_input_mat <- dplyr::inner_join(scal_features_matrix, tile_plot_df[,10:13], by = c("tile_name" = "tile_ID"))
+#scal_input_mat[,1] <- sapply(scal_input_mat$tile_name, basename) #input_mat include tile_name, scaled 2048 features, and target genes' expression
 
 
+#Don't need to do this every time (unless you made some changes in input_mat)
+#saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
+#saveRDS(scal_input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/scal_input_mat.RDS") 
 
 
-
-#Save the workspace #Skip this
-#save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_correct_tileplotdf.RData")
-#get the tiles order first , set it to rownames, and mapping rownames to original expression values 
-#load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_correct_tileplotdf.RData")
+#load the imput_mat from RDS file
+input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS")
+#scal_input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/scal_input_mat.RDS")
 
 
+#split the dataset 
 set.seed(123)
-
-split = sample.split(input_mat[,1], SplitRatio = 0.8)
+split = sample.split(input_mat[,1], SplitRatio = 0.65)
 training_set = subset(input_mat, split == TRUE)
 test_set = subset(input_mat, split == FALSE)
 
+#split the scaled dataset
+#set.seed(123)
+#split = sample.split(scal_input_mat[,1], SplitRatio = 0.8)
+#training_set = subset(scal_input_mat, split == TRUE)
+#test_set = subset(scal_input_mat, split == FALSE)
 
-#Create Contol here first
+#Model 1: #LASSO or elasticnet (glmnet) not using lm because linear regression model need more observations than variables(features) so the PC could be more reliable. -- use original features
+#Put LASSO as a baseline to compare with other ML model, get to know if these models are better
 
-#Put a linear regression model here as a baseline to compare with other ML model, get to know if these models are better
 
 
 
 
-#Use the SVM model 
-svm_mod_APOE <- svm(APOE ~ .,
-                    data = training_set[,-c(1,202)], #c(1,11)
-                    type = 'eps-regression',
-                    kernel = 'linear',
-                    cost = 10)
 
-# Predicting the Test set results (without giving it real expression value)
-#APOE_pred = predict(svm_mod_APOE , newdata = test_set[,-c(1,10,11)])
-APOE_pred = predict(svm_mod_APOE , newdata = test_set[,-c(1,201, 202)])
 
-#Generate confusion matrix
-cm_APOE = data.frame( APOE = test_set[201], APOE_pred = APOE_pred, tile_name = test_set[,1]) #APOE = test_set[10]
 
-
-# Combine the original expression value and predict values with tile coordinates
-cm_APOE <- merge(tile_plot_df[match(cm_APOE$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_APOE, by = "tile_name")
-
-
-mse =  mean((test_set$APOE - APOE_pred)^2) 
-mae = MAE(test_set$APOE, APOE_pred)
-rmse = RMSE(test_set$APOE, APOE_pred)
-r2 = R2(test_set$APOE, APOE_pred, form = "traditional")
-cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
-    "RMSE:", rmse, "\n", "R-squared:", r2)
-
-
-
-#Prepare df for ploting
-traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c(9,13,14)], by = "tile_name")
-testing_testdf <- merge(test_set, tile_plot_df[tile_plot_df$tile_name %in% test_set$tile_name, c(9,13,14)], by = "tile_name")
-train_n_test_testdf <- rbind(traing_testdf, testing_testdf)
-
-
-#Plot visium gene expression (training set)
-ggplot(traing_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE)) +
-  scale_colour_gradient2()
-
-
-#Polt visium gene expression (test set)
-ggplot(cm_APOE, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE)) +
-  scale_colour_gradient2() #low = "blue", high = "red"
-
-#or 
-ggplot(testing_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE)) +
-  scale_colour_gradient2() 
-
-#Plot visium gene expression (entire dataset)
-ggplot(train_n_test_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE)) +
-  scale_colour_gradient2()
-
-
-
-#Polt predict expression
-ggplot(cm_APOE, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE_pred)) +
-  scale_colour_gradient2()
-
-
-#Plot PCs on training data #To see if PCs showing some spatial patterns
-ggplot(traing_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = PC2)) +
-  scale_colour_gradient2()
-
-#Plot PCs on whole data (2004 tiles)
-ggplot(train_n_test_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = PC1)) +
-  scale_colour_gradient2()
-
-
-
-
-
-#Use the SVM model #MMP7
-svm_mod_MMP7 <- svm(MMP7 ~ .,
-                    data = training_set[,-c(1,10)],
-                    type = 'eps-regression',
-                    kernel = 'linear',
-                    cost = 10)
-
-
-MMP7_pred = predict(svm_mod_MMP7 , newdata = test_set[,-c(1,10,11)])
-
-#Generate confusion matrix
-cm_MMP7 = data.frame( MMP7 = test_set$MMP7, MMP7_pred = MMP7_pred, tile_name = test_set[,1])
-
-# Combine the original expression value and predict values with tile coordinates
-cm_MMP7 <- merge(tile_plot_df[match(cm_MMP7$tile_name, tile_plot_df$tile_name), c(3,9,13,14)], cm_MMP7, by = "tile_name")
-
-
-mse =  mean((test_set$MMP7 - MMP7_pred)^2) 
-mae = MAE(test_set$MMP7, MMP7_pred)
-rmse = RMSE(test_set$MMP7, MMP7_pred)
-r2 = R2(test_set$MMP7, MMP7_pred, form = "traditional")
-cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
-    "RMSE:", rmse, "\n", "R-squared:", r2)
-
-
-
-#Plot visium gene expression (training set)
-ggplot(traing_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = MMP7)) +
-  scale_colour_gradient2()
-
-
-
-#Polt visium gene expression (testing_data)
-ggplot(cm_MMP7, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = MMP7)) +
-  scale_colour_gradient2() #low = "blue", high = "red"
-
-#or 
-ggplot(testing_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = MMP7)) +
-  scale_colour_gradient2() 
-
-
-#Polt predict expression
-ggplot(cm_MMP7, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = MMP7_pred)) +
-  scale_colour_gradient2()
-
-
-#save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_correct_workspace.RData")
-#load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_correct_workspace.RData")
-
-
-########################################################################################################################################################
-
-linearModel <- glm(APOE ~ ., data= training_set[,-c(1,11)], 
-                   family=gaussian(link="identity"))
-
-linearPredicts <- predict(linearModel, newdata =  test_set[,-c(1,10,11)])
-
-glm_result <- data.frame( APOE= test_set[,10], APOE_pred = linearPredicts, tile_name = test_set[,1])
-
-summary(linearModel)
-
-mse =  mean((glm_result$APOE - glm_result$APOE_pred)^2) 
-mae = MAE(glm_result$APOE, glm_result$APOE_pred)
-rmse = RMSE(glm_result$APOE, glm_result$APOE_pred)
-r2 = R2(glm_result$APOE, glm_result$APOE_pred, form = "traditional")
-cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
-    "RMSE:", rmse, "\n", "R-squared:", r2)
-
-########################################################################################################################################################
-
-#Using a few spots and replicate it for multiple times 
-test_sub_rep <- rbind(testing_testdf[1:20,],testing_testdf[1:20,],testing_testdf[1:20,],testing_testdf[1:20,],testing_testdf[1:20,])
-test_sub_rep_pred <- testing_testdf[1:20,]
-
-svm_mod_APOE <- svm(APOE ~ .,
-                    data = test_sub_rep[,-c(1,8)],
-                    type = 'eps-regression',
-                    kernel = 'linear',
-                    cost = 100)
-
-# Predicting the Test set results (without giving it real expression value)
-APOE_pred = predict(svm_mod_APOE , newdata = test_sub_rep_pred[,-c(1,7,8)])
-
-#Generate confusion matrix
-cm_APOE = data.frame( APOE = test_sub_rep_pred[7], APOE_pred = APOE_pred, tile_name = test_sub_rep_pred[,1])
-
-
-# Combine the original expression value and predict values with tile coordinates
-cm_APOE <- merge(tile_plot_df[match(cm_APOE$tile_name, tile_plot_df$tile_name),c(3,9,13,14)], cm_APOE, by = "tile_name")
-
-
-#library(caret)
-mse =  mean((test_sub_rep_pred$APOE - APOE_pred)^2) 
-mae = MAE(test_sub_rep_pred[, 7], APOE_pred)
-rmse = RMSE(test_sub_rep_pred[, 7], APOE_pred)
-r2 = R2(test_sub_rep_pred[, 7], APOE_pred, form = "traditional")
-cat(" MAE:", mae, "\n", "MSE:", mse, "\n", 
-    "RMSE:", rmse, "\n", "R-squared:", r2)
-#MAE: 0.4204569 
-#MSE: 0.526939 
-#RMSE: 0.7259056 
-#R-squared: -1.587039
-
-########################################################################################################################################################
-
+#########################################################################################################################################################################################
 #Mergeing the tiles that are red dots in PC1 
 tile_names <- lapply(train_n_test_testdf[,1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/', x))
 # Create an empty list to store the raster objects
@@ -380,85 +196,6 @@ vis_spots <-Giotto::spatPlot2D(visium_sample_119B, largeImage_name = "image", po
 
 
 
-############################################################################################
-#This section does not work
-library(grid)
-
-# Load required libraries
-library(ggplot2)
-library(here)      #Path management
-library(prismatic) #Approximation to hexcode colors in console
-
-# Read the raster image using the terra package
-raster_image <-raster::stack("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/119B.tif")
-#raster_image <- rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/119B.tif")
-
-# Convert the raster image to a data frame for ggplot
-raster_df <- as.data.frame(raster_image, xy = TRUE)
-
-colnames(raster_df) <- c("x", "y", "Red", "Green", "Blue")
-
-df_subset <- raster_df[1:1000000,]
-
-# Plot the raster image using ggplot
-ggplot(data = raster_df, aes(x = x, y = y)) + 
-  geom_raster(fill = rgb(r = raster_df$Red, g = raster_df$Green, b = raster_df$Blue, maxColorValue = 255), show.legend = FALSE) +
-  scale_fill_identity() + 
-  ggtitle("Plot .tif rgb") +
-  theme_minimal()
-
-ggsave(Map,                                            #save map
-       filename = paste0(here(), "/satellite_img.jpg"), dpi = 200)
 
 
-
-#######################################################################################################
-
-#Testing
-subset_tile_plot_df <- grep('s119B_[0-9]{1}_[1-4]\\.tif$', list_files, value = TRUE)  
-
-#plot first 9 patches
-ggplot(tile_plot_df[tile_plot_df$tile_ID %in% subset_tile_plot_df,], aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE)) +
-  scale_colour_gradient2()
-
-#Plot all patches APOE
-ggplot(tile_plot_df, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = APOE)) +
-  scale_colour_gradient2()
-
-#Plot all patches MMP7
-ggplot(tile_plot_df, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = MMP7)) +
-  scale_colour_gradient2()
-
-
-original_expression = merge(cell_coords[,1:3], spatial_genes[1:3], by = "cell_ID")
-#all(cell_coords$cell_ID == spatial_genes$cell_ID) #Check if the cell IDs match
-ggplot(original_expression, aes(x=sdimx, y=sdimy)) +
-  geom_point(aes(colour = APOE), size=2) +
-  scale_colour_gradient2()
-
-
-ggplot(original_expression, aes(x=sdimx, y=sdimy)) +
-  geom_point(aes(colour = MMP7), size=2) +
-  scale_colour_gradient2()
-
-
-###################################################################################################################
-original_APOE_expression[1:9,]
-tile_plot_df[tile_plot_df$tile_ID %in% subset_tile_plot_df,]
-original_APOE_expression
-tile_plot_df
-tiles_df
-spatial_genes
-cell_coords
-patch_tile_info
-tile_name # This may be wrong, patch number may not match to the cell ID
-##########################################################
-#Tiles have the coordinate and the spots also have the coordinate, 
-#using this to combine the tiles to the expression value 
-#also go back to check the order of the patch/spot that use to generate smaller tiles.
-
-save.image(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_08_06.RData")
 
