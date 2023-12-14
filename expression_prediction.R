@@ -19,6 +19,7 @@ library(glmnet)
 library(gbm) 
 library(scales)
 library(ggpubr)
+library(dgof)
 
 #select the conda environment 
 reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_keras/bin/python")
@@ -66,10 +67,8 @@ load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4ti
 #any(is.nan(image_mat))
 #dim(image_mat) #2004 2048
 
-
 # cells_order Get From make_patch_tiles_4tiles.R file
 patches_info <- dplyr::inner_join(cell_coords, cells_order, by = c("xmin", "xmax", "ymin", "ymax"))
-
 
 #Get the information of expression that links to the tiles
 ##Get the all the tile names
@@ -81,11 +80,9 @@ tile_name <- data.frame( tile_name = sapply(list_files,basename), patch_number =
 patch_tile_info <- data.frame()
 patch_tile_info <- dplyr::right_join(patches_info, tile_name, by = c("patch_number" = "patch_number"), multiple = "all")
 
-
 #Get normalized visium gene expression of all genes
 scaled_expr_mt <-Giotto::getExpression(visium_sample_119B, values = "scaled",spat_unit = "cell", feat_type = "rna", output = "matrix")%>% 
   as.matrix()
-
 
 #Get the expression values of specific spatial genes (Breast cancer related marker genes)
 spatial_genes <-data.frame()
@@ -93,7 +90,6 @@ spatial_genes <- t(scaled_expr_mt[c("SPARC","COL1A1","LUM","SFRP2","COL3A1","SUL
   as.data.frame()
 spatial_genes <-  mutate(spatial_genes, cell_ID = rownames(spatial_genes))
 patch_tile_info <- dplyr::inner_join(patch_tile_info, spatial_genes, by = c("cell_ID" = "cell_ID"))
-
 
 #Concat spatial gene's expression that is associating with those tiles to the df
 tiles_df <- data.frame(
@@ -131,70 +127,9 @@ input_mat <- data.frame()
 input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:21], by = c("tile_name" = "tile_ID")) #select target gene and tile_ID columns
 input_mat[,1] <- sapply(input_mat$tile_name, basename) #input_mat include tile_name, original 2048 features, and target genes' expression
 
-#scal_input_mat <- data.frame()
-#scal_input_mat <- dplyr::inner_join(scal_features_matrix, tile_plot_df[,10:13], by = c("tile_name" = "tile_ID"))
-#scal_input_mat[,1] <- sapply(scal_input_mat$tile_name, basename) #input_mat include tile_name, scaled 2048 features, and target genes' expression
-
 
 #Don't need to do this every time (unless you made some changes in input_mat)
 #saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
-#saveRDS(scal_input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/scal_input_mat.RDS") 
-
-
-#load the imput_mat from RDS file
-input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS")
-#scal_input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/scal_input_mat.RDS")
-
-
-#split the dataset 
-set.seed(123)
-split = sample.split(input_mat[,1], SplitRatio = 0.65)
-training_set = subset(input_mat, split == TRUE)
-test_set = subset(input_mat, split == FALSE) 
-
-#split the scaled dataset
-#set.seed(123)
-#split = sample.split(scal_input_mat[,1], SplitRatio = 0.8)
-#training_set = subset(scal_input_mat, split == TRUE)
-#test_set = subset(scal_input_mat, split == FALSE)
-
-#Model 1: #LASSO or elasticnet (glmnet) not using lm because linear regression model need more observations than variables(features) so the PC could be more reliable. -- use original features
-#Put LASSO as a baseline to compare with other ML model, get to know if these models are better
-
-
-
-
-
-
-
-
-#########################################################################################################################################################################################
-#Mergeing the tiles that are red dots in PC1 
-tile_names <- lapply(train_n_test_testdf[,1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/', x))
-# Create an empty list to store the raster objects
-fftiles <- list()
-fftile_rows <- list()
-
-# Load each raster into the list
-for (tile_i in 1:length(tile_names)) {
-  tile <- terra::rast(tile_names[[tile_i]])
-  fftiles[[tile_i]] <- tile
-  fftile_rows[[tile_i]] <- nrow(terra::values(fftiles[[tile_i]]))
-}
-
-# Stack the rasters in the list on top of each other
-fftiles_ls <-terra::sprc(fftiles)
-merge_image <- terra::merge(fftiles_ls)
-
-# Plot the merged raster
-terra::plot(merge_image)
-
-vis_spots <-Giotto::spatPlot2D(visium_sample_119B, largeImage_name = "image", point_alpha = 0.3)
-
-
-
-
-
-
+#saveRDS(tile_plot_df, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/tile_plot_df.RDS") 
 
 
