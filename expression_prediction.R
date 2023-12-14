@@ -89,7 +89,7 @@ scaled_expr_mt <-Giotto::getExpression(visium_sample_119B, values = "scaled",spa
 
 #Get the expression values of specific spatial genes (Breast cancer related marker genes)
 spatial_genes <-data.frame()
-spatial_genes <- t(scaled_expr_mt[c("SPARC","SFRP2","COL3A1","COL1A1","LUM","SULF1","COL1A2","VCAN","IGFBP7","COL18A1","THY1"), , drop = FALSE]) %>% 
+spatial_genes <- t(scaled_expr_mt[c("SPARC","COL1A1","LUM","SFRP2","COL3A1","SULF1","COL1A2","VCAN","IGFBP7","COL18A1","THY1"), , drop = FALSE]) %>% 
   as.data.frame()
 spatial_genes <-  mutate(spatial_genes, cell_ID = rownames(spatial_genes))
 patch_tile_info <- dplyr::inner_join(patch_tile_info, spatial_genes, by = c("cell_ID" = "cell_ID"))
@@ -126,8 +126,7 @@ colnames(image_mat) <- paste0("f", seq_along(image_mat))
 features_matrix <-cbind(tile_names, image_mat)
 #scal_features_matrix <-cbind(tile_names, scal_image_mat)
 
-
-#features_matrix$tile_name <- gsub("/s119B_", "s119B_", features_matrix$tile_name)
+#Create input matrix #Do not need to do this every time.
 input_mat <- data.frame()
 input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:21], by = c("tile_name" = "tile_ID")) #select target gene and tile_ID columns
 input_mat[,1] <- sapply(input_mat$tile_name, basename) #input_mat include tile_name, original 2048 features, and target genes' expression
@@ -151,7 +150,7 @@ input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution
 set.seed(123)
 split = sample.split(input_mat[,1], SplitRatio = 0.65)
 training_set = subset(input_mat, split == TRUE)
-test_set = subset(input_mat, split == FALSE)
+test_set = subset(input_mat, split == FALSE) 
 
 #split the scaled dataset
 #set.seed(123)
