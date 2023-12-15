@@ -55,17 +55,19 @@ cell_coords <- cell_coords %>%
   )
 
 # Train the resnet model in patch_run_resnet_model.R
-load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_afterPCA.RData") 
-#Have "res_dfr", "tile_names", "s119B_patch_tiles_pca" variable in it
+#load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_afterPCA.RData") 
+#Have "res_dfr", "tile_names", "s119B_patch_tiles_pca" variable in it (resnet50 features)
+load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData")
+#Have "res_dfr", "tile_names", "image_mat" variable in it (vgg16 features)
 #res_dfr -- contain all the features from each spot-covered tiles before performing PCA
 
 
-#Get the patch number with corresponding extent #cells_order
+#Get the patch number with corresponding extent # with "cells_order" variable in it
 load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_after_maketiles.RData")
 
 # Check features matrix from resnet50 model
 #any(is.nan(image_mat))
-#dim(image_mat) #2004 2048
+#dim(image_mat) #2004 2048 #or for vgg16 2004 512
 
 # cells_order Get From make_patch_tiles_4tiles.R file
 patches_info <- dplyr::inner_join(cell_coords, cells_order, by = c("xmin", "xmax", "ymin", "ymax"))
@@ -106,13 +108,15 @@ tile_plot_df <- data.frame()
 tile_plot_df <- dplyr::inner_join(patch_tile_info, tiles_df, by = c("tile_name" = "tile_name"))
 
 
-# Use original features from Resnet50 model would be reliable than using PCs
+# Use original features from Resnet50 / vgg16 model would be reliable than using PCs
 # Convert results to matrix (image x features)
-tile_names <- data.frame(tile_name = res_dfr[,1])
-image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) %>% as.data.frame()
-dim(image_mat) #Check how many tiles are not empty
+#tile_names <- data.frame(tile_name = res_dfr[,1])
+#image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) %>% as.data.frame()
+#dim(image_mat) #Check how many tiles are not empty
+#image_mat already load from "patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData"
 
 # modify the column names avoid using number as column names
+image_mat <- image_mat%>% as.data.frame()
 colnames(image_mat) <- paste0("f", seq_along(image_mat))
 
 #scale the features
@@ -126,10 +130,13 @@ features_matrix <-cbind(tile_names, image_mat)
 input_mat <- data.frame()
 input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:21], by = c("tile_name" = "tile_ID")) #select target gene and tile_ID columns
 input_mat[,1] <- sapply(input_mat$tile_name, basename) #input_mat include tile_name, original 2048 features, and target genes' expression
+                                                                                    #original 512 features (VGG16)
 
 
 #Don't need to do this every time (unless you made some changes in input_mat)
-#saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
+#(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
 #saveRDS(tile_plot_df, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/tile_plot_df.RDS") 
 
+#saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat_vgg.RDS") 
+#saveRDS(tile_plot_df, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/tile_plot_df_vgg.RDS") 
 

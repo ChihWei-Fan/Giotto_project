@@ -19,8 +19,11 @@ reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_
 #Set the resnet_model
 resnet_model_shape <- keras::application_resnet50(weights = "imagenet", include_top = FALSE, pooling = "max", input_shape = c(100, 100, 3)) 
 
+#Set the vgg16_model
+#vgg16_model_shape <- keras::application_vgg16(weights = "imagenet", include_top = FALSE, pooling = "max", input_shape = c(100, 100, 3))
+
 #Get the filnames and folder
-pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/"
+pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles"
 list_files = list.files(pilot_folder, pattern = 's119B_\\d+_\\d+\\.tif$', full.names = T)
 
 
@@ -45,7 +48,7 @@ for(img_path_i in 1:length(list_files)) {
   ff_img <- imagenet_preprocess_input(ff_img)
   
   # extract features
-  ff_features <- resnet_model_shape %>% predict(ff_img)
+  ff_features <- resnet_model_shape %>% predict(ff_img)  #vgg16_model_shape
   res_list[[img_path_i]] = c(img_path,ff_features) #associating filename should match to the xempty_tile_ls
 }
 
@@ -55,14 +58,14 @@ res_dfr = do.call('rbind', res_list)
 
 # Convert results to matrix (image x features)
 tile_names <- data.frame(tile_name = res_dfr[,1])
-image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048)
+image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 512) #resnet_50 -- ncol = 2048
 dim(image_mat) #Check how many tiles are not empty
 
 # run simple PCA on image feature matrix
-s119B_patch_tiles_pca <- prcomp(image_mat, center = T, scale. = T)
-pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_pca_barplot.pdf") 
-plot(s119B_patch_tiles_pca)
-dev.off()
+#s119B_patch_tiles_pca <- prcomp(image_mat, center = T, scale. = T)
+#pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_pca_barplot.pdf") 
+#plot(s119B_patch_tiles_pca)
+#dev.off()
 
 #save(res_dfr, tile_names, s119B_patch_tiles_pca, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_afterPCA.RData")
-
+#save(res_dfr, tile_names, image_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData")

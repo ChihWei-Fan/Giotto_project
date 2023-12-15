@@ -194,9 +194,6 @@ terra::plot(combined_raster, main = 'ff1018+19')
 #Get all the tiles' filename in a list 
 load("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/s119B_pca8_kmean8.RData")
 
-tile_names<- lapply(comb_res[comb_res$kmeans == 7,1], function(x) paste0('/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/s119B_88x93_tiles/', x))
-
-
 ```
 
 

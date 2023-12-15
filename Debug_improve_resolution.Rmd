@@ -9,7 +9,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## Check how amny clusters belongs to the edge clusters ()
-
 ```{r - **merge tiles with all clusters**}
 # comb_res is a dataframe which has the tiles name and the cluster the tile belongs to
 #Get all the filenames of tiles in a list 
@@ -53,13 +52,35 @@ for (kmean_val in 1:4) {
 ```
 
 
-
-## There are too many clusters occupied by edge clusters, 
-
-
+#check the dimension of patch_tile
 ```{r}
+random_tile = rast("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_100_3.tif")
+terra::plot(random_tile, main = 'ff100')
+dim(random_tile)
 
 ```
+#merge all patch_tile
+```{r}
+#Run the expression_prediction.R file before run this chunk
+head(tile_names)
+# Create an empty list to store the raster objects
+fftiles <- list()
+fftile_rows <- list()
+
+# Load each raster into the list
+for (tile_i in 1:nrow(tile_names)) {
+  fftiles[[tile_i]]  <- terra::rast(tile_names[tile_i,])
+}
+
+# Stack the rasters in the list on top of each other
+fftiles_ls <-terra::sprc(fftiles)
+merge_image <- terra::merge(fftiles_ls)
+terra::plot(merge_image, main = 'patch_4tiles')
+
+```
+
+
+
 
 #Build matrics caluation function
 ```{r}
