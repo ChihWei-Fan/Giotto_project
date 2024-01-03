@@ -4,7 +4,6 @@ if(!require(keras)) {
 }
 library(tidyverse)
 library(keras)
-library(ggplot2)
 library(data.table)
 library(terra)
 library(tensorflow)
@@ -13,13 +12,6 @@ library(RColorBrewer)
 library(Giotto)
 library(e1071)
 library(caTools)
-library(caret)
-library(randomForest)
-library(glmnet)
-library(gbm) 
-library(scales)
-library(ggpubr)
-library(dgof)
 
 #select the conda environment 
 reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_keras/bin/python")
@@ -109,22 +101,16 @@ tile_plot_df <- dplyr::inner_join(patch_tile_info, tiles_df, by = c("tile_name" 
 
 
 # Use original features from Resnet50 / vgg16 model would be reliable than using PCs
-# Convert results to matrix (image x features)
-#tile_names <- data.frame(tile_name = res_dfr[,1])
-#image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) %>% as.data.frame()
-#dim(image_mat) #Check how many tiles are not empty
 #image_mat already load from "patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData"
 
 # modify the column names avoid using number as column names
 image_mat <- image_mat%>% as.data.frame()
 colnames(image_mat) <- paste0("f", seq_along(image_mat))
 
-#scale the features
-#scal_image_mat <- scale(image_mat, center = T, scale = T) #scaled by col
 
 #Combine the features with the corresponding tile name 
 features_matrix <-cbind(tile_names, image_mat)
-#scal_features_matrix <-cbind(tile_names, scal_image_mat)
+
 
 #Create input matrix #Do not need to do this every time.
 input_mat <- data.frame()
@@ -132,9 +118,8 @@ input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:21], by = c("ti
 input_mat[,1] <- sapply(input_mat$tile_name, basename) #input_mat include tile_name, original 2048 features, and target genes' expression
                                                                                     #original 512 features (VGG16)
 
-
 #Don't need to do this every time (unless you made some changes in input_mat)
-#(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
+#saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 
 #saveRDS(tile_plot_df, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/tile_plot_df.RDS") 
 
 #saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat_vgg.RDS") 

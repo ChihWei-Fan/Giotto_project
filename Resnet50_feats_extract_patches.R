@@ -17,10 +17,14 @@ library(Giotto)
 reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_keras/bin/python")
 
 #Set the resnet_model
-resnet_model_shape <- keras::application_resnet50(weights = "imagenet", include_top = FALSE, pooling = "max", input_shape = c(100, 100, 3)) 
+resnet_model_shape <- keras::application_resnet50(weights = "imagenet", include_top = FALSE, 
+                                                  pooling = "max", input_shape = c(100, 100, 3)) 
 
 #Set the vgg16_model
-#vgg16_model_shape <- keras::application_vgg16(weights = "imagenet", include_top = FALSE, pooling = "max", input_shape = c(100, 100, 3))
+#vgg16_model_shape <- keras::application_vgg16(weights = "imagenet", include_top = FALSE, 
+                                              #pooling = "max", input_shape = c(100, 100, 3))
+
+
 
 #Get the filnames and folder
 pilot_folder <- "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles"
@@ -48,7 +52,7 @@ for(img_path_i in 1:length(list_files)) {
   ff_img <- imagenet_preprocess_input(ff_img)
   
   # extract features
-  ff_features <- resnet_model_shape %>% predict(ff_img)  #vgg16_model_shape
+  ff_features <- resnet_model_shape %>% predict(ff_img)  #vgg16_model_shape #resnet_model_shape
   res_list[[img_path_i]] = c(img_path,ff_features) #associating filename should match to the xempty_tile_ls
 }
 

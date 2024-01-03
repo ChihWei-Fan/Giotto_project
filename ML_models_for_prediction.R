@@ -1,10 +1,6 @@
 # Load necessry libraries
-if(!require(keras)) {
-  install.packages("keras")
-}
 library(tidyverse)
 library(keras)
-library(ggplot2)
 library(data.table)
 library(terra)
 library(tensorflow)
@@ -14,9 +10,9 @@ library(Giotto)
 library(e1071)
 library(caTools)
 library(caret)
-library(randomForest)
-library(glmnet)
-library(gbm) 
+#library(randomForest)
+#library(glmnet)
+#library(gbm) 
 library(scales)
 library(ggpubr)
 library(dgof)
@@ -29,14 +25,14 @@ tile_plot_df <- readRDS(file ="/projectnb/rd-spat/HOME/ivycwf/project_1/resoluti
 #tile_plot_df <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/tile_plot_df_vgg.RDS") 
 
 
-#split the dataset 
-set.seed(123)
-split = sample.split(input_mat[,1], SplitRatio = 0.65)
-training_set = subset(input_mat, split == TRUE)
-test_set = subset(input_mat, split == FALSE) 
+#Prepare df for checking plots
+traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")
+testing_testdf <- merge(test_set, tile_plot_df[tile_plot_df$tile_name %in% test_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")
+train_n_test_testdf <- rbind(traing_testdf, testing_testdf)
 
 
-#Build matrics caluation function
+
+# Define a function to calculate performance metrics
 calculate_metrics <- function(observed, predicted) {
   mse <- mean((observed - predicted)^2)
   mae <- mean(abs(observed - predicted))
@@ -48,34 +44,41 @@ calculate_metrics <- function(observed, predicted) {
       "RMSE:", rmse, "\n", "R-squared:", r2, "\n", "Pearson:", pearson, "\n")
 }
 
-#Build plot expression mapping plots and relationship plot
-plot_expression <- function(data, observed_col, predicted_col) {
-  # Plot observed expression
-  plot_observed <- ggplot(data, aes(x = x_cor, y = y_cor)) +
-    geom_point(aes(colour = .data[[observed_col]])) +
-    scale_colour_gradient2() +
-    ggtitle("Observed Expression")
+# Define a function to create expression mapping and relationship plots 
+plot_expression <- function(data, gene_name, plot_type) {
+  if (plot_type == "observed") {
+    col = gene_name
+    title = paste("Observed Expression of", gene_name)
+  } else if (plot_type == "predicted") {
+    col = paste(gene_name, "_pred", sep = "")
+    title = paste("Predicted Expression of", gene_name)
+  } else if (plot_type == "relation") {
+    observed_col = gene_name
+    predicted_col = paste(gene_name, "_pred", sep = "")
+    return(ggscatter(data, x = observed_col, y = predicted_col, 
+                     add = "reg.line", conf.int = TRUE, 
+                     cor.coef = TRUE, cor.method = "pearson",
+                     add.params = list(color = "blue", fill = "lightgray"),
+                     xlab = paste("Observed", observed_col, "Expression"), 
+                     ylab = paste("Predicted", predicted_col, "Expression"),
+                     size = 1.5, cor.coef.size = 5))
+  } else {
+    stop("Invalid plot type. Choose 'observed', 'predicted', or 'relation'.")
+  }
   
-  # Plot predicted expression
-  plot_predicted <- ggplot(data, aes(x = x_cor, y = y_cor)) +
-    geom_point(aes(colour = .data[[predicted_col]])) +
-    scale_colour_gradient2() +
-    ggtitle("Predicted Expression")
-  
-  plot_relation <- ggscatter(data, x = observed_col, y = predicted_col, 
-                             add = "reg.line", conf.int = TRUE, 
-                             cor.coef = TRUE, cor.method = "pearson",
-                             add.params = list(color = "blue", fill = "lightgray"),
-                             xlab = paste("Observed",observed_col, "Expression"), ylab = paste("Predicted",observed_col, "Expression"),
-                             size = 1.5, cor.coef.size = 5)
-  
-  # Print or display the plots
-  print(plot_observed)
-  print(plot_predicted)
-  print(plot_relation)
+  ggplot(data, aes(x = x_cor, y = y_cor)) +
+    geom_point(aes(colour = .data[[col]])) +
+    scale_colour_gradient2(low = "blue", high = "red") +
+    ggtitle(title)
 }
 
-#Build train and predict model function
+#Check the expression of entire dataset of a single gene
+#Example:
+#plot_expression(train_n_test_testdf, "SPARC", "observed")
+#plot_expression(traing_testdf, "SPARC", "observed")
+
+
+#Define a train and predict model function
 model_train_predict <- function(gene_name, train_set, methods, test_set){
   control <- trainControl(method="cv",                            
                           number = 10,                            
@@ -113,7 +116,8 @@ cm_SPARC_lso <- merge(tile_plot_df[match(cm_gene_lso$tile_name,tile_plot_df$tile
 calculate_metrics(cm_SPARC_lso$SPARC, cm_SPARC_lso$SPARC_pred)
 
 #Plot predicted expression
-plot_expression(cm_SPARC_lso, "SPARC", "SPARC_pred")
+plot_expression(cm_SPARC_lso, "SPARC", "predicted")
+plot_expression(cm_SPARC_lso, "SPARC", "relation")
 
 head(cm_SPARC_lso)
 
@@ -129,6 +133,7 @@ ggqqplot(cm_SPARC_lso$SPARC, ylab = "SPARC")+
 # QQ-plot normality test for predicted SPARC
 ggqqplot(cm_SPARC_lso$SPARC_pred, ylab = "SPARC_pred")+
   ggtitle("Quantile-Quantile Plot of Predicted SPARC Expression")
+#Kolmogorov-Smirnov test
 ks.test(cm_SPARC_lso$SPARC, "pnorm")
 ks.test(cm_SPARC_lso$SPARC_pred, "pnorm")
 
@@ -229,33 +234,12 @@ summary(all_results)
 bwplot(all_results, metric = "Rsquared")
 
 
-#Prepare df for ploting
-traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")
-testing_testdf <- merge(test_set, tile_plot_df[tile_plot_df$tile_name %in% test_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")
-train_n_test_testdf <- rbind(traing_testdf, testing_testdf)
 
-#Plotting results
-#Plot predict expression
-ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC_pred)) +
-  scale_colour_gradient2(low = "blue", high = "red" )
 
-#Plot visium gene expression (test set)
-ggplot(cm_SPARC_lso, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC)) +
-  scale_colour_gradient2(low = "blue", high = "red" )
 
-#Plot visium gene expression (training set)
-ggplot(traing_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC)) +
-  scale_colour_gradient2(low = "blue", high = "red" )
 
-#Plot visium gene expression (entire dataset)
-ggplot(train_n_test_testdf, aes(x=x_cor, y=y_cor)) +
-  geom_point(aes(colour = SPARC)) +
-  scale_colour_gradient2(low = "blue", high = "red" )
 
-###Check the correctness of the ploting result (training set + testing set)
+###Check the correctness of the plotting result of LSSO model (training set + testing set)
 combined_data <- rbind(data.frame(x_cor = cm_SPARC_lso$x_cor, y_cor = cm_SPARC_lso$y_cor, SPARC = cm_SPARC_lso$SPARC, dataset = "Lasso"),
                        data.frame(x_cor = traing_testdf$x_cor, y_cor = traing_testdf$y_cor, SPARC = traing_testdf$SPARC, dataset = "Training Set"))
 
