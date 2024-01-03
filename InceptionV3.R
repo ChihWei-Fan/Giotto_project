@@ -98,8 +98,6 @@ history <- inception_model_base %>% fit(
 
 
 
-
-
 # Add custom layers for your specific task
 model <- inception_model %>%
   keras::layer_global_average_pooling_2d() %>%
