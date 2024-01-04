@@ -103,5 +103,6 @@ cells_order <- do.call(rbind, cell_order)%>% as.data.frame()
 colnames(cells_order) <- c("patch_number", "xmin", "xmax", "ymin", "ymax")
 
 #save(cells_order, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_after_maketiles.RData")
+#saveRDS(cell_coords, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_cell_coords.RDS")
 
 

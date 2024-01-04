@@ -17,39 +17,31 @@ library(caTools)
 reticulate::use_condaenv("/projectnb/rd-spat/HOME/ivycwf/.conda/envs/giotto_env_keras/bin/python")
 
 #Load visium data
-load(file ="/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_119B.RData" )
+load(file ="/projectnb/rd-spat/HOME/ivycwf/project_1/sample_119B/visium_119B.RData")
 
 
 # Generates deep copy of SpatRaster
-full_image <- Giotto::createGiottoLargeImage("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/119B.tif")
-
-
-#put an large image in the Giotto object
-visium_sample_119B@largeImages <- list(image = full_image)
-
-
-#Get the full size image spatialRaster
-fullsize_sr <- full_image@raster_object
+# full_image <- Giotto::createGiottoLargeImage("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/119B.tif")
+# 
+# 
+# #put an large image in the Giotto object
+# visium_sample_119B@largeImages <- list(image = full_image)
+# 
+# 
+# #Get the full size image spatialRaster
+# fullsize_sr <- full_image@raster_object
 #spatPlot2D(visium_sample_119B, show_image = T, largeImage_name = "image")
 
 
-#Get all the coordinates of spots
-cell_coords <-visium_sample_119B@spatial_locs$cell$raw@coordinates %>% as.data.frame()
+#Get all the coordinates of spots from "cell coords"
+cell_coords <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_cell_coords.RDS")
 
-
-#$fiducial_diameter_fullres -- 324.4803 (info from scale_json file)
-cell_coords <- cell_coords %>%
-  mutate(
-    xmin = sdimx - 100,
-    xmax = sdimx + 100,
-    ymin = sdimy - 100,
-    ymax = sdimy + 100
-  )
 
 # Train the resnet model in patch_run_resnet_model.R
-#load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_afterPCA.RData") 
-#Have "res_dfr", "tile_names", "s119B_patch_tiles_pca" variable in it (resnet50 features)
-load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData")
+load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_resnet50_extracted_feats.RData")
+#Have "res_dfr", "image_mat" variable in it (resnet50 features)
+
+#load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData")
 #Have "res_dfr", "tile_names", "image_mat" variable in it (vgg16 features)
 #res_dfr -- contain all the features from each spot-covered tiles before performing PCA
 
@@ -57,9 +49,10 @@ load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4ti
 #Get the patch number with corresponding extent # with "cells_order" variable in it
 load(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_after_maketiles.RData")
 
+
 # Check features matrix from resnet50 model
-#any(is.nan(image_mat))
-#dim(image_mat) #2004 2048 #or for vgg16 2004 512
+any(is.nan(image_mat))
+
 
 # cells_order Get From make_patch_tiles_4tiles.R file
 patches_info <- dplyr::inner_join(cell_coords, cells_order, by = c("xmin", "xmax", "ymin", "ymax"))
@@ -101,7 +94,9 @@ tile_plot_df <- dplyr::inner_join(patch_tile_info, tiles_df, by = c("tile_name" 
 
 
 # Use original features from Resnet50 / vgg16 model would be reliable than using PCs
-#image_mat already load from "patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData"
+#image_mat already load from "patch_tiles_4tiles/s119B_patch_resnet50_extracted_feats.RData"
+#                         or "patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData"
+
 
 # modify the column names avoid using number as column names
 image_mat <- image_mat%>% as.data.frame()
@@ -109,14 +104,17 @@ colnames(image_mat) <- paste0("f", seq_along(image_mat))
 
 
 #Combine the features with the corresponding tile name 
-features_matrix <-cbind(tile_names, image_mat)
+features_matrix <-cbind(sapply(res_dfr[,1], basename), image_mat) 
+colnames(features_matrix)[1] <- "tile_name"
+rownames(features_matrix) <- NULL
+
 
 
 #Create input matrix #Do not need to do this every time.
 input_mat <- data.frame()
-input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,10:21], by = c("tile_name" = "tile_ID")) #select target gene and tile_ID columns
-input_mat[,1] <- sapply(input_mat$tile_name, basename) #input_mat include tile_name, original 2048 features, and target genes' expression
-                                                                                    #original 512 features (VGG16)
+input_mat <- dplyr::inner_join(features_matrix, tile_plot_df[,9:20], by = c("tile_name" = "tile_name")) #select target gene and tile_ID columns
+#input_mat include tile_name, original 2048 features, and target genes' expression (resnet50)
+                            #original 512 features (VGG16)
 
 #Don't need to do this every time (unless you made some changes in input_mat)
 #saveRDS(input_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat.RDS") 

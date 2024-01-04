@@ -24,6 +24,12 @@ tile_plot_df <- readRDS(file ="/projectnb/rd-spat/HOME/ivycwf/project_1/resoluti
 #input_mat <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/input_mat_vgg.RDS") 
 #tile_plot_df <- readRDS(file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/tile_plot_df_vgg.RDS") 
 
+#split the dataset 
+set.seed(123)
+split = sample.split(input_mat[,1], SplitRatio = 0.65)
+training_set = subset(input_mat, split == TRUE)
+test_set = subset(input_mat, split == FALSE) 
+
 
 #Prepare df for checking plots
 traing_testdf <- merge(training_set, tile_plot_df[tile_plot_df$tile_name %in% training_set$tile_name, c("tile_name","x_cor","y_cor")], by = "tile_name")

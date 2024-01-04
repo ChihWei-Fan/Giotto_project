@@ -61,15 +61,18 @@ for(img_path_i in 1:length(list_files)) {
 res_dfr = do.call('rbind', res_list)
 
 # Convert results to matrix (image x features)
-tile_names <- data.frame(tile_name = res_dfr[,1])
-image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 512) #resnet_50 -- ncol = 2048
+#tile_names <- data.frame(tile_name = res_dfr[,1])
+image_mat <- matrix(as.numeric(res_dfr[,-1]), ncol = 2048) #vgg16 -- ncol = 512
 dim(image_mat) #Check how many tiles are not empty
+
+
+#save(res_dfr, image_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_resnet50_extracted_feats.RData")
+#save(res_dfr, tile_names, image_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData")
+
 
 # run simple PCA on image feature matrix
 #s119B_patch_tiles_pca <- prcomp(image_mat, center = T, scale. = T)
 #pdf("/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_pca_barplot.pdf") 
 #plot(s119B_patch_tiles_pca)
 #dev.off()
-
 #save(res_dfr, tile_names, s119B_patch_tiles_pca, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_afterPCA.RData")
-#save(res_dfr, tile_names, image_mat, file = "/projectnb/rd-spat/HOME/ivycwf/project_1/resolution/patch_tiles_4tiles/s119B_patch_vgg16_extracted_feats.RData")
