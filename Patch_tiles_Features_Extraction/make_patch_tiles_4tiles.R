@@ -1,8 +1,4 @@
 # Load necessry libraries
-if(!require(keras)) {
-  install.packages("keras")
-}
-
 library(tidyverse)
 library(keras)
 library(ggplot2)

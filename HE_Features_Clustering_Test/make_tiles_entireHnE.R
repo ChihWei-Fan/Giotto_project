@@ -33,7 +33,6 @@ he_image_masked_crop <- terra::rast("/projectnb/rd-spat/HOME/ivycwf/project_1/re
 terra::plot(he_image_masked_crop)
 
 
-
 # Checking xmin, xmax, ymin, ymax, and dim first
 he_image_masked_crop 
 

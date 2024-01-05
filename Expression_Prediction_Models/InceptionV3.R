@@ -95,9 +95,6 @@ history <- inception_model_base %>% fit(
 )
 
 
-
-
-
 # Add custom layers for your specific task
 model <- inception_model %>%
   keras::layer_global_average_pooling_2d() %>%
@@ -120,6 +117,3 @@ history <- model %>% fit(
   batch_size = 32,
   validation_data = list(validation_data, validation_labels)  # Replace with your validation data and labels
 )
-
-
-inception_v3_preprocess_input()
